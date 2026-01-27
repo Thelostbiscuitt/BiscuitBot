@@ -132,8 +132,25 @@ class LLMRouter:
         """
         url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         
-        # Prepare messages
-        messages = conversation_history[-10:] if len(conversation_history) > 10 else conversation_history
+        # Prepare messages with system prompt for formatting
+        system_prompt = """You are Biscuit, a helpful AI assistant. Format your responses with proper structure and spacing:
+
+1. Use paragraph breaks (double newlines) between different topics or sections
+2. Use bullet points (• or -) for lists
+3. Use code blocks (```) for code examples
+4. Use bold (**text**) for emphasis on key terms
+5. Keep responses well-organized and easy to read
+6. Use numbered lists (1., 2., 3.) for sequential steps
+7. Use headers (#, ##, ###) sparingly for major sections
+8. Ensure proper spacing around formatting elements
+
+Your responses should be clean, well-structured, and visually appealing."""
+        
+        # Add system prompt at the beginning
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history (last 10 messages to stay within context limits)
+        messages.extend(conversation_history[-10:] if len(conversation_history) > 10 else conversation_history)
         
         # Generate JWT token for authentication
         token = self._generate_glm_token()
