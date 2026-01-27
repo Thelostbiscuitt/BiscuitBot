@@ -41,6 +41,55 @@ class TelegramBot:
         self.config = Config()
         self.router = LLMRouter(self.config)
         self.conversations: Dict[int, List[Dict]] = {}
+    
+    def _format_response(self, response: str) -> str:
+        """
+        Post-process LLM response to ensure proper formatting and spacing.
+        
+        Args:
+            response: Raw response from LLM
+            
+        Returns:
+            Formatted response with proper spacing
+        """
+        # Ensure consistent line endings
+        response = response.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Ensure double newlines between paragraphs
+        # Replace 3+ newlines with 2 newlines
+        response = '\n\n'.join(
+            para.strip() for para in response.split('\n\n') if para.strip()
+        )
+        
+        # Ensure single newlines within paragraphs are preserved
+        # But add spacing around code blocks
+        lines = response.split('\n')
+        formatted_lines = []
+        in_code_block = False
+        
+        for i, line in enumerate(lines):
+            # Detect code block start/end
+            if line.strip().startswith('```'):
+                in_code_block = not in_code_block
+                formatted_lines.append(line)
+                # Add spacing before/after code blocks
+                if not in_code_block and i < len(lines) - 1:
+                    formatted_lines.append('')
+                continue
+            
+            # Add spacing before headers
+            if line.strip().startswith('#') and i > 0:
+                if formatted_lines and formatted_lines[-1] != '':
+                    formatted_lines.append('')
+            
+            formatted_lines.append(line)
+        
+        response = '\n'.join(formatted_lines)
+        
+        # Ensure response doesn't end with extra newlines
+        response = response.rstrip()
+        
+        return response
         
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -152,18 +201,32 @@ class TelegramBot:
                 conversation_history=self.conversations[user_id]
             )
             
-            # Add assistant response to history
+            # Post-process response for proper formatting
+            formatted_response = self._format_response(response)
+            
+            # DEBUG: Log response characteristics
+            logger.info(f"[DEBUG] Response analysis for user {user_id}:")
+            logger.info(f"  - Response length: {len(formatted_response)} characters")
+            logger.info(f"  - Line count: {formatted_response.count(chr(10)) + 1}")
+            logger.info(f"  - Contains Markdown bold: {'**' in formatted_response}")
+            logger.info(f"  - Contains code blocks: {'```' in formatted_response}")
+            logger.info(f"  - Contains lists: {'•' in formatted_response or '- ' in formatted_response}")
+            logger.info(f"  - Contains headers: {'#' in formatted_response}")
+            logger.info(f"  - Has paragraph breaks: {'\\n\\n' in formatted_response}")
+            logger.info(f"  - Parse mode: Markdown")
+            
+            # Add assistant response to history (store original response)
             self.conversations[user_id].append({
                 "role": "assistant",
-                "content": response
+                "content": formatted_response
             })
             
             # Keep conversation history manageable (last 20 messages)
             if len(self.conversations[user_id]) > 20:
                 self.conversations[user_id] = self.conversations[user_id][-20:]
             
-            # Send response
-            await update.message.reply_text(response)
+            # Send response with Markdown parsing
+            await update.message.reply_text(formatted_response, parse_mode='Markdown')
             
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
