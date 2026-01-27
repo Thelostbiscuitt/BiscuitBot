@@ -98,25 +98,25 @@ class TelegramBot:
         
         # DEBUG: Log welcome message characteristics
         welcome_message = (
-            "👋 Hello Doom!\\n\\n"
-            "Biscuit is online and ready to assist.\\n\\n"
-            "What I can do:\\n"
-            "• General chat and conversation\\n"
-            "• Coding assistance\\n"
-            "• Deep analysis and explanations\\n\\n"
-            "Commands:\\n"
-            "`/start` - Show menu\\n"
-            "`/clear` - Clear history\\n"
-            "`/stats` - View stats\\n"
-            "`/help` - Get help\\n\\n"
+            "👋 Hello Doom!\n\n"
+            "Biscuit is online and ready to assist.\n\n"
+            "What I can do:\n"
+            "• General chat and conversation\n"
+            "• Coding assistance\n"
+            "• Deep analysis and explanations\n\n"
+            "Commands:\n"
+            "`/start` - Show menu\n"
+            "`/clear` - Clear history\n"
+            "`/stats` - View stats\n"
+            "`/help` - Get help\n\n"
             "Powered by GLM 4.7"
         )
         
         # DEBUG: Analyze message characteristics
         emoji_count = len([c for c in welcome_message if c in '👋🚀🛠️⌨️💾💬💻📊'])
-        line_count = welcome_message.count('\\n') + 1
+        line_count = welcome_message.count('\n') + 1
         char_count = len(welcome_message)
-        section_count = welcome_message.count('\\n\\n') + 1
+        section_count = welcome_message.count('\n\n') + 1
         
         logger.info(f"[DEBUG] Welcome message analysis:")
         logger.info(f"  - Emoji count: {emoji_count}")
@@ -130,14 +130,14 @@ class TelegramBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         help_text = (
-            "🤖 *Bot Capabilities*\\n\\n"
-            "*General Chat:* Just talk to me naturally\\n"
-            "*Coding Help:* Ask programming questions\\n"
-            "*Analysis:* Request deep analysis on topics\\n\\n"
-            "*Technical Details:*\\n"
-            "• Powered by GLM 4.7 API\\n"
-            "• Conversation memory per user\\n"
-            "• Cost tracking\\n"
+            "🤖 *Bot Capabilities*\n\n"
+            "*General Chat:* Just talk to me naturally\n"
+            "*Coding Help:* Ask programming questions\n"
+            "*Analysis:* Request deep analysis on topics\n\n"
+            "*Technical Details:*\n"
+            "• Powered by GLM 4.7 API\n"
+            "• Conversation memory per user\n"
+            "• Cost tracking\n"
         )
         
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -160,10 +160,10 @@ class TelegramBot:
         conversation_length = len(self.conversations.get(user_id, []))
         
         stats_message = (
-            "📊 *Usage Statistics*\\n\\n"
-            f"*Total Requests:* {stats['total_requests']}\\n"
-            f"*GLM Calls:* {stats['glm_calls']}\\n"
-            f"*Total Cost:* ${stats['total_cost']:.4f}\\n\\n"
+            "📊 *Usage Statistics*\n\n"
+            f"*Total Requests:* {stats['total_requests']}\n"
+            f"*GLM Calls:* {stats['glm_calls']}\n"
+            f"*Total Cost:* ${stats['total_cost']:.4f}\n\n"
             f"*Your Conversation:* {conversation_length} messages"
         )
         
