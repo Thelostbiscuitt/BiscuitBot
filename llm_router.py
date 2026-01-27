@@ -144,7 +144,7 @@ class LLMRouter:
         }
         
         payload = {
-            "model": "chatglm3-6b",
+            "model": "glm-4.7",
             "messages": messages,
             "temperature": 0.7,
             "max_tokens": 2000
