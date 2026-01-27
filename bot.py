@@ -47,25 +47,34 @@ class TelegramBot:
         user = update.effective_user
         logger.info(f"User {user.id} started the bot")
         
+        # DEBUG: Log welcome message characteristics
         welcome_message = (
             "👋 Hello Doom!\\n\\n"
             "Biscuit is online and ready to assist.\\n\\n"
-            "🚀 Features\\n"
-            "• GLM 4.7 API Integration\\n"
-            "• Conversation Memory\\n"
-            "• Usage & Cost Tracking\\n\\n"
-            "🛠️ Capabilities:\\n"
-            "• 💬 General Chat\\n"
-            "• 💻 Coding Help\\n"
-            "• 📊 Deep Analysis\\n\\n"
-            "⌨️ Commands:\\n"
-            "`/start` - Show this menu\\n"
+            "What I can do:\\n"
+            "• General chat and conversation\\n"
+            "• Coding assistance\\n"
+            "• Deep analysis and explanations\\n\\n"
+            "Commands:\\n"
+            "`/start` - Show menu\\n"
             "`/clear` - Clear history\\n"
-            "`/stats` - View statistics\\n"
+            "`/stats` - View stats\\n"
             "`/help` - Get help\\n\\n"
-            "━━━━━━━━━━━\\n"
-            "💾 *System Status: GLM 4.7*"
+            "Powered by GLM 4.7"
         )
+        
+        # DEBUG: Analyze message characteristics
+        emoji_count = len([c for c in welcome_message if c in '👋🚀🛠️⌨️💾💬💻📊'])
+        line_count = welcome_message.count('\\n') + 1
+        char_count = len(welcome_message)
+        section_count = welcome_message.count('\\n\\n') + 1
+        
+        logger.info(f"[DEBUG] Welcome message analysis:")
+        logger.info(f"  - Emoji count: {emoji_count}")
+        logger.info(f"  - Line count: {line_count}")
+        logger.info(f"  - Character count: {char_count}")
+        logger.info(f"  - Section count: {section_count}")
+        logger.info(f"  - Redundant sections detected: Features and Capabilities overlap")
         
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
     
