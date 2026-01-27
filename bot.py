@@ -48,20 +48,26 @@ class TelegramBot:
         logger.info(f"User {user.id} started the bot")
         
         welcome_message = (
-            f"👋 Hello {user.first_name}!\\n\\n"
-            "I'm your intelligent AI assistant with:\\n"
-            "• GLM 4.7 API integration\\n"
-            "• Conversation memory\\n"
-            "• Cost tracking\\n\\n"
-            "Commands:\\n"
-            "/start - Show this message\\n"
-            "/clear - Clear conversation history\\n"
-            "/stats - Show usage statistics\\n"
-            "/help - Get help\\n\\n"
-            "Just send me any message to chat!"
+            "👋 Hello Doom!\\n\\n"
+            "Biscuit is online and ready to assist.\\n\\n"
+            "🚀 Features\\n"
+            "• GLM 4.7 API Integration\\n"
+            "• Conversation Memory\\n"
+            "• Usage & Cost Tracking\\n\\n"
+            "🛠️ Capabilities:\\n"
+            "• 💬 General Chat\\n"
+            "• 💻 Coding Help\\n"
+            "• 📊 Deep Analysis\\n\\n"
+            "⌨️ Commands:\\n"
+            "`/start` - Show this menu\\n"
+            "`/clear` - Clear history\\n"
+            "`/stats` - View statistics\\n"
+            "`/help` - Get help\\n\\n"
+            "━━━━━━━━━━━\\n"
+            "💾 *System Status: GLM 4.7*"
         )
         
-        await update.message.reply_text(welcome_message)
+        await update.message.reply_text(welcome_message, parse_mode='Markdown')
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
