@@ -39,7 +39,8 @@ class LLMRouter:
         self,
         user_id: int,
         message: str,
-        conversation_history: List[Dict]
+        conversation_history: List[Dict],
+        user_name: Optional[str] = None
     ) -> str:
         """
         Get response from GLM API
@@ -48,6 +49,7 @@ class LLMRouter:
             user_id: Telegram user ID
             message: User's message
             conversation_history: Previous messages
+            user_name: User's display name for personalization
             
         Returns:
             LLM response text
@@ -56,7 +58,7 @@ class LLMRouter:
         
         # Call GLM API
         try:
-            response = await self._call_glm(message, conversation_history)
+            response = await self._call_glm(message, conversation_history, user_name)
             self.stats['glm_calls'] += 1
             return response
             
@@ -123,7 +125,8 @@ class LLMRouter:
     async def _call_glm(
         self,
         message: str,
-        conversation_history: List[Dict]
+        conversation_history: List[Dict],
+        user_name: Optional[str] = None
     ) -> str:
         """
         Call GLM 4.7 API (ZhipuAI)
@@ -132,7 +135,7 @@ class LLMRouter:
         """
         url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         
-        # Prepare messages with system prompt for formatting
+        # Prepare messages with system prompt for formatting and personalization
         system_prompt = """You are Biscuit, a helpful AI assistant. Format your responses with proper structure and spacing:
 
 1. Use paragraph breaks (double newlines) between different topics or sections
@@ -145,6 +148,10 @@ class LLMRouter:
 8. Ensure proper spacing around formatting elements
 
 Your responses should be clean, well-structured, and visually appealing."""
+        
+        # Add personalization if user name is provided
+        if user_name:
+            system_prompt += f"\n\nYou are speaking with {user_name}. Address them by name when appropriate to create a more personalized conversation experience."
         
         # Add system prompt at the beginning
         messages = [{"role": "system", "content": system_prompt}]
