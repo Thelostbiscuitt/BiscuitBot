@@ -144,7 +144,7 @@ class LLMRouter:
         }
         
         payload = {
-            "model": "glm-4",
+            "model": "glm-4-flash",
             "messages": messages,
             "temperature": 0.7,
             "max_tokens": 2000
