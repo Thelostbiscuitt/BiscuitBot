@@ -96,9 +96,12 @@ class TelegramBot:
         user = update.effective_user
         logger.info(f"User {user.id} started the bot")
         
+        # Get user's display name (prefer first_name, fall back to username)
+        user_name = user.first_name if user.first_name else (user.username if user.username else "there")
+        
         # DEBUG: Log welcome message characteristics
         welcome_message = (
-            "👋 Hello Doom!\n\n"
+            f"👋 Hello {user_name}!\n\n"
             "Biscuit is online and ready to assist.\n\n"
             "What I can do:\n"
             "• General chat and conversation\n"
@@ -177,6 +180,9 @@ class TelegramBot:
         
         logger.info(f"User {user_id} sent: {message_text[:50]}...")
         
+        # Get user's display name for personalization
+        user_name = user.first_name if user.first_name else (user.username if user.username else None)
+        
         # Initialize conversation history if needed
         if user_id not in self.conversations:
             self.conversations[user_id] = []
@@ -194,11 +200,12 @@ class TelegramBot:
                 action="typing"
             )
             
-            # Get response from LLM router
+            # Get response from LLM router with user name for personalization
             response = await self.router.get_response(
                 user_id=user_id,
                 message=message_text,
-                conversation_history=self.conversations[user_id]
+                conversation_history=self.conversations[user_id],
+                user_name=user_name
             )
             
             # Post-process response for proper formatting
