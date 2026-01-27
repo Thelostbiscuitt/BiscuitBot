@@ -5,6 +5,10 @@ Handles GLM API calls with automatic cost tracking
 
 import logging
 import json
+import time
+import hmac
+import hashlib
+import base64
 from typing import List, Dict, Optional
 import httpx
 from datetime import datetime
@@ -61,28 +65,86 @@ class LLMRouter:
             self.stats['glm_failures'] += 1
             raise Exception("GLM API failed. Please try again later.")
     
+    def _generate_glm_token(self) -> str:
+        """
+        Generate JWT token for ZhipuAI GLM API authentication
+        
+        The API key format is: id.secret
+        We need to create a JWT token signed with the secret
+        """
+        try:
+            api_key = self.config.glm_api_key
+            if '.' not in api_key:
+                raise ValueError("Invalid API key format. Expected 'id.secret'")
+            
+            api_key_id, api_key_secret = api_key.split('.')
+            
+            # Create JWT payload
+            timestamp = int(time.time())
+            exp_timestamp = timestamp + 3600  # Token expires in 1 hour
+            
+            payload = {
+                "api_key": api_key_id,
+                "exp": exp_timestamp,
+                "timestamp": timestamp
+            }
+            
+            # Encode payload
+            payload_encoded = base64.urlsafe_b64encode(
+                json.dumps(payload).encode('utf-8')
+            ).decode('utf-8').rstrip('=')
+            
+            # Create header
+            header = {
+                "alg": "HS256",
+                "sign_type": "SIGN"
+            }
+            header_encoded = base64.urlsafe_b64encode(
+                json.dumps(header).encode('utf-8')
+            ).decode('utf-8').rstrip('=')
+            
+            # Create signature
+            message = f"{header_encoded}.{payload_encoded}"
+            signature = hmac.new(
+                api_key_secret.encode('utf-8'),
+                message.encode('utf-8'),
+                hashlib.sha256
+            ).digest()
+            signature_encoded = base64.urlsafe_b64encode(signature).decode('utf-8').rstrip('=')
+            
+            # Combine to form JWT
+            token = f"{header_encoded}.{payload_encoded}.{signature_encoded}"
+            return token
+            
+        except Exception as e:
+            logger.error(f"Error generating GLM token: {e}")
+            raise
+    
     async def _call_glm(
-        self, 
-        message: str, 
+        self,
+        message: str,
         conversation_history: List[Dict]
     ) -> str:
         """
         Call GLM 4.7 API (ZhipuAI)
         
-        Note: GLM API format may differ - adjust as needed
+        Uses JWT token authentication
         """
         url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         
         # Prepare messages
         messages = conversation_history[-10:] if len(conversation_history) > 10 else conversation_history
         
+        # Generate JWT token for authentication
+        token = self._generate_glm_token()
+        
         headers = {
-            "Authorization": f"Bearer {self.config.glm_api_key}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
         
         payload = {
-            "model": "glm-4",  # or "glm-4-air" for faster responses
+            "model": "glm-4",
             "messages": messages,
             "temperature": 0.7,
             "max_tokens": 2000
@@ -90,7 +152,14 @@ class LLMRouter:
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
+            
+            # Log response details for debugging
+            logger.info(f"GLM API Status: {response.status_code}")
+            
+            if response.status_code != 200:
+                error_text = response.text
+                logger.error(f"GLM API Error: {error_text}")
+                raise Exception(f"GLM API returned status {response.status_code}: {error_text}")
             
             data = response.json()
             
