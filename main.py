@@ -13,6 +13,7 @@ Features:
 import os
 import logging
 import json
+import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
 from telegram import Update
@@ -143,8 +144,7 @@ class TelegramBot:
         )
         
         await update.message.reply_text(stats_message, parse_mode='Markdown')
-    
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle regular text messages"""
         user = update.effective_user
         user_id = user.id
@@ -152,22 +152,27 @@ class TelegramBot:
         
         logger.info(f"User {user_id} sent: {message_text[:50]}...")
         
+        # Get user's display name for personalization
         user_name = user.first_name if user.first_name else (user.username if user.username else None)
         
+        # Initialize conversation history if needed
         if user_id not in self.conversations:
             self.conversations[user_id] = []
         
+        # Add user message to history
         self.conversations[user_id].append({
             "role": "user",
             "content": message_text
         })
         
         try:
+            # Send typing indicator
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id,
                 action="typing"
             )
             
+            # Get response from LLM router
             response = await self.router.get_response(
                 user_id=user_id,
                 message=message_text,
@@ -175,17 +180,52 @@ class TelegramBot:
                 user_name=user_name
             )
             
+            # Post-process response for proper formatting
             formatted_response = self._format_response(response)
             
+            # --- NEW SPLITTING LOGIC START ---
+            # Telegram limit is 4096 chars. We split if it's longer.
+            MAX_MESSAGE_LENGTH = 4096
+            current_text = formatted_response
+
+            while len(current_text) > 0:
+                # Determine the chunk size
+                chunk = current_text[:MAX_MESSAGE_LENGTH]
+                
+                # If there is more text remaining, try to split at a newline
+                # to avoid cutting words or code blocks in half.
+                if len(current_text) > MAX_MESSAGE_LENGTH:
+                    # Find the last newline within the chunk
+                    last_newline_index = chunk.rfind('\n')
+                    
+                    # If a newline is found reasonably far back (e.g., last 20% of the chunk), split there
+                    if last_newline_index > MAX_MESSAGE_LENGTH * 0.8:
+                        chunk = chunk[:last_newline_index + 1]
+                        current_text = current_text[len(chunk):]
+                    else:
+                        # No good newline found, just split at the max length
+                        current_text = current_text[MAX_MESSAGE_LENGTH:]
+                else:
+                    # This is the last chunk
+                    current_text = ""
+
+                # Send the chunk
+                await update.message.reply_text(chunk, parse_mode='Markdown')
+                
+                # Sleep briefly to avoid rate limits if there are more chunks to send
+                if len(current_text) > 0:
+                    await asyncio.sleep(0.5)
+            # --- NEW SPLITTING LOGIC END ---
+            
+            # Add the FULL assistant response to history (not just the chunk)
             self.conversations[user_id].append({
                 "role": "assistant",
                 "content": formatted_response
             })
             
+            # Keep conversation history manageable (last 20 messages)
             if len(self.conversations[user_id]) > 20:
                 self.conversations[user_id] = self.conversations[user_id][-20:]
-            
-            await update.message.reply_text(formatted_response, parse_mode='Markdown')
             
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
@@ -223,3 +263,4 @@ class TelegramBot:
 if __name__ == "__main__":
     bot = TelegramBot()
     bot.run()
+
