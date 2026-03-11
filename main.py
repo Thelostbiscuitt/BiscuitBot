@@ -2,18 +2,12 @@
 """
 Production-Ready Telegram Bot with Groq Llama 3.3 API Integration
 Designed for Render deployment
-
-Features:
-- Llama 3.3 70B Versatile API integration (via Groq)
-- Cost tracking
-- Conversation history management
-- Error logging
 """
 
 import os
 import logging
 import json
-import asyncio
+import asyncio  # <--- IMPORT ADDED FOR SLEEP/DELAY
 from datetime import datetime
 from typing import Dict, List, Optional
 from telegram import Update
@@ -24,8 +18,6 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
-
-# IMPORTS FROM OTHER FILES
 from llm_router import LLMRouter
 from config import Config
 
@@ -144,7 +136,8 @@ class TelegramBot:
         )
         
         await update.message.reply_text(stats_message, parse_mode='Markdown')
-        async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle regular text messages"""
         user = update.effective_user
         user_id = user.id
@@ -183,8 +176,7 @@ class TelegramBot:
             # Post-process response for proper formatting
             formatted_response = self._format_response(response)
             
-            # --- NEW SPLITTING LOGIC START ---
-            # Telegram limit is 4096 chars. We split if it's longer.
+            # --- SPLITTING LOGIC FOR LONG MESSAGES ---
             MAX_MESSAGE_LENGTH = 4096
             current_text = formatted_response
 
@@ -193,12 +185,11 @@ class TelegramBot:
                 chunk = current_text[:MAX_MESSAGE_LENGTH]
                 
                 # If there is more text remaining, try to split at a newline
-                # to avoid cutting words or code blocks in half.
                 if len(current_text) > MAX_MESSAGE_LENGTH:
                     # Find the last newline within the chunk
                     last_newline_index = chunk.rfind('\n')
                     
-                    # If a newline is found reasonably far back (e.g., last 20% of the chunk), split there
+                    # If a newline is found reasonably far back, split there
                     if last_newline_index > MAX_MESSAGE_LENGTH * 0.8:
                         chunk = chunk[:last_newline_index + 1]
                         current_text = current_text[len(chunk):]
@@ -212,18 +203,18 @@ class TelegramBot:
                 # Send the chunk
                 await update.message.reply_text(chunk, parse_mode='Markdown')
                 
-                # Sleep briefly to avoid rate limits if there are more chunks to send
+                # Sleep briefly to avoid rate limits if there are more chunks
                 if len(current_text) > 0:
                     await asyncio.sleep(0.5)
-            # --- NEW SPLITTING LOGIC END ---
-            
-            # Add the FULL assistant response to history (not just the chunk)
+            # -----------------------------------------
+
+            # Add the FULL assistant response to history
             self.conversations[user_id].append({
                 "role": "assistant",
                 "content": formatted_response
             })
             
-            # Keep conversation history manageable (last 20 messages)
+            # Keep conversation history manageable
             if len(self.conversations[user_id]) > 20:
                 self.conversations[user_id] = self.conversations[user_id][-20:]
             
@@ -263,4 +254,3 @@ class TelegramBot:
 if __name__ == "__main__":
     bot = TelegramBot()
     bot.run()
-
