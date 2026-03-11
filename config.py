@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env file (for local testing)
+# On Render, these variables are injected automatically
 load_dotenv()
 
 
@@ -19,10 +20,10 @@ class Config:
         if not self.telegram_token:
             raise ValueError("TELEGRAM_BOT_TOKEN not found in environment variables")
         
-        # GLM API Key
-        self.glm_api_key = os.getenv('GLM_API_KEY')
-        if not self.glm_api_key:
-            raise ValueError("GLM_API_KEY not found in environment variables")
+        # Groq API Key (for Llama 3.3 70B Versatile)
+        self.groq_api_key = os.getenv('GROQ_API_KEY')
+        if not self.groq_api_key:
+            raise ValueError("GROQ_API_KEY not found in environment variables")
         
         # Optional: Authorized user IDs (for access control)
         authorized_users = os.getenv('AUTHORIZED_USERS', '')
