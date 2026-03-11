@@ -93,7 +93,7 @@ Your responses should be clean, well-structured, and visually appealing."""
             "model": model_id,
             "messages": messages,
             "temperature": 0.7,
-            "max_tokens": 2000
+            "max_tokens": 8000
         }
         
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -147,3 +147,4 @@ Your responses should be clean, well-structured, and visually appealing."""
             'total_cost': 0.0,
             'llm_failures': 0
         }
+
