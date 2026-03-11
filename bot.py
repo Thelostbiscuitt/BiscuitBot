@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Production-Ready Telegram Bot with GLM API Integration
-Designed for Railway deployment
+Production-Ready Telegram Bot with Groq Llama 3.3 API Integration
+Designed for Render deployment
 
 Features:
-- GLM 4.7 API integration
+- Llama 3.3 70B Versatile API integration (via Groq)
 - Cost tracking
 - Conversation history management
 - Error logging
@@ -99,7 +99,6 @@ class TelegramBot:
         # Get user's display name (prefer first_name, fall back to username)
         user_name = user.first_name if user.first_name else (user.username if user.username else "there")
         
-        # DEBUG: Log welcome message characteristics
         welcome_message = (
             f"👋 Hello {user_name}!\n\n"
             "Biscuit is online and ready to assist.\n\n"
@@ -112,7 +111,7 @@ class TelegramBot:
             "`/clear` - Clear history\n"
             "`/stats` - View stats\n"
             "`/help` - Get help\n\n"
-            "Powered by GLM 4.7"
+            "Powered by Llama 3.3 (Groq)"
         )
         
         # DEBUG: Analyze message characteristics
@@ -138,7 +137,7 @@ class TelegramBot:
             "*Coding Help:* Ask programming questions\n"
             "*Analysis:* Request deep analysis on topics\n\n"
             "*Technical Details:*\n"
-            "• Powered by GLM 4.7 API\n"
+            "• Powered by Llama 3.3 (Groq)\n"
             "• Conversation memory per user\n"
             "• Cost tracking\n"
         )
@@ -165,7 +164,7 @@ class TelegramBot:
         stats_message = (
             "📊 *Usage Statistics*\n\n"
             f"*Total Requests:* {stats['total_requests']}\n"
-            f"*GLM Calls:* {stats['glm_calls']}\n"
+            f"*Llama Calls:* {stats['llm_calls']}\n"  # Updated key from 'glm_calls'
             f"*Total Cost:* ${stats['total_cost']:.4f}\n\n"
             f"*Your Conversation:* {conversation_length} messages"
         )
