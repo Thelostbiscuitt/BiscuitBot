@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Production-Ready Telegram Bot with Groq Llama 3.3 API Integration
-Features Interactive Pagination for long responses.
+Features Interactive Pagination for long responses with Error Handling.
 """
 
 import os
@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -203,7 +204,11 @@ class TelegramBot:
             
             # If only 1 chunk (Short message), send normally
             if len(chunks) == 1:
-                await update.message.reply_text(chunks[0], parse_mode='Markdown')
+                try:
+                    await update.message.reply_text(chunks[0], parse_mode='Markdown')
+                except BadRequest:
+                    # Fallback to plain text if Markdown is broken (e.g. unclosed tags)
+                    await update.message.reply_text(chunks[0])
             
             # If multiple chunks, start Pagination Mode
             else:
@@ -217,7 +222,11 @@ class TelegramBot:
                 keyboard = [[InlineKeyboardButton("Read More > (1/{})".format(len(chunks)), callback_data=f"next_{user_id}_1")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                await update.message.reply_text(chunks[0], parse_mode='Markdown', reply_markup=reply_markup)
+                # Send with fallback for Markdown errors
+                try:
+                    await update.message.reply_text(chunks[0], parse_mode='Markdown', reply_markup=reply_markup)
+                except BadRequest:
+                    await update.message.reply_text(chunks[0], reply_markup=reply_markup)
 
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
@@ -231,9 +240,13 @@ class TelegramBot:
         user_id = query.from_user.id
         
         # Parse callback data: "next_userID_pageIndex" or "prev_userID_pageIndex"
-        action, uid_str, page_str = query.data.split('_')
-        target_user_id = int(uid_str)
-        target_page = int(page_str)
+        try:
+            action, uid_str, page_str = query.data.split('_')
+            target_user_id = int(uid_str)
+            target_page = int(page_str)
+        except ValueError:
+            logger.error(f"Invalid callback data: {query.data}")
+            return
         
         # Security check: Ensure user is only clicking their own buttons
         if user_id != target_user_id:
@@ -272,15 +285,22 @@ class TelegramBot:
             
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
         
-        # Update the message
+        # Update the message with Fallback for Markdown errors
         try:
             await query.edit_message_text(
                 text=chunks[target_page],
                 parse_mode='Markdown',
                 reply_markup=reply_markup
             )
-        except Exception as e:
-            logger.error(f"Error editing message: {e}")
+        except BadRequest:
+            # Markdown parsing failed (likely broken tag), fallback to plain text
+            try:
+                await query.edit_message_text(
+                    text=chunks[target_page],
+                    reply_markup=reply_markup
+                )
+            except Exception as e:
+                logger.error(f"Error editing message (fallback failed): {e}")
 
     def run(self):
         """Start the bot"""
@@ -294,6 +314,7 @@ class TelegramBot:
         application.add_handler(CommandHandler("stats", self.stats_command))
         
         # Add the Pagination Button Handler
+        # Pattern matches "next_123_1" or "prev_123_1"
         application.add_handler(CallbackQueryHandler(self.pagination_callback, pattern="^(next|prev)_"))
         
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
