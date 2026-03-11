@@ -1,163 +1,225 @@
+#!/usr/bin/env python3
 """
-LLM Router for Llama 3.3 70B Versatile (via Groq API)
-Handles API calls with automatic cost tracking
+Production-Ready Telegram Bot with Groq Llama 3.3 API Integration
+Designed for Render deployment
+
+Features:
+- Llama 3.3 70B Versatile API integration (via Groq)
+- Cost tracking
+- Conversation history management
+- Error logging
 """
 
+import os
 import logging
 import json
-import httpx
-from typing import List, Dict, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
 
+# IMPORTS FROM OTHER FILES
+from llm_router import LLMRouter
+from config import Config
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 
-class LLMRouter:
-    """
-    Llama 3.3 API integration (via Groq) with cost tracking
-    """
+class TelegramBot:
+    """Main Telegram Bot class with LLM integration"""
     
-    def __init__(self, config):
-        self.config = config
-        self.stats = {
-            'total_requests': 0,
-            'llm_calls': 0,
-            'total_cost': 0.0,
-            'llm_failures': 0
-        }
-        
-        # Pricing (per 1M tokens - approximate for Groq Llama 3.3)
-        # Note: Groq pricing changes, check https://console.groq.com/docs/rate-limits
-        self.pricing = {
-            'llama': {'input': 0.59, 'output': 0.79}  
-        }
+    def __init__(self):
+        self.config = Config()
+        self.router = LLMRouter(self.config)
+        self.conversations: Dict[int, List[Dict]] = {}
     
-    async def get_response(
-        self,
-        user_id: int,
-        message: str,
-        conversation_history: List[Dict],
-        user_name: Optional[str] = None
-    ) -> str:
+    def _format_response(self, response: str) -> str:
         """
-        Get response from Llama API
+        Post-process LLM response to ensure proper formatting and spacing.
+        """
+        # Ensure consistent line endings
+        response = response.replace('\r\n', '\n').replace('\r', '\n')
         
-        Args:
-            user_id: Telegram user ID
-            message: User's message
-            conversation_history: Previous messages
-            user_name: User's display name for personalization
+        # Ensure double newlines between paragraphs
+        response = '\n\n'.join(
+            para.strip() for para in response.split('\n\n') if para.strip()
+        )
+        
+        # Ensure single newlines within paragraphs are preserved
+        lines = response.split('\n')
+        formatted_lines = []
+        in_code_block = False
+        
+        for i, line in enumerate(lines):
+            if line.strip().startswith('```'):
+                in_code_block = not in_code_block
+                formatted_lines.append(line)
+                if not in_code_block and i < len(lines) - 1:
+                    formatted_lines.append('')
+                continue
             
-        Returns:
-            LLM response text
-        """
-        self.stats['total_requests'] += 1
+            if line.strip().startswith('#') and i > 0:
+                if formatted_lines and formatted_lines[-1] != '':
+                    formatted_lines.append('')
+            
+            formatted_lines.append(line)
+        
+        response = '\n'.join(formatted_lines)
+        response = response.rstrip()
+        return response
+        
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /start command"""
+        user = update.effective_user
+        logger.info(f"User {user.id} started the bot")
+        
+        user_name = user.first_name if user.first_name else (user.username if user.username else "there")
+        
+        welcome_message = (
+            f"👋 Hello {user_name}!\n\n"
+            "Biscuit is online and ready to assist.\n\n"
+            "What I can do:\n"
+            "• General chat and conversation\n"
+            "• Coding assistance\n"
+            "• Deep analysis and explanations\n\n"
+            "Commands:\n"
+            "`/start` - Show menu\n"
+            "`/clear` - Clear history\n"
+            "`/stats` - View stats\n"
+            "`/help` - Get help\n\n"
+            "Powered by Llama 3.3 (Groq)"
+        )
+        
+        await update.message.reply_text(welcome_message, parse_mode='Markdown')
+    
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /help command"""
+        help_text = (
+            "🤖 *Bot Capabilities*\n\n"
+            "*General Chat:* Just talk to me naturally\n"
+            "*Coding Help:* Ask programming questions\n"
+            "*Analysis:* Request deep analysis on topics\n\n"
+            "*Technical Details:*\n"
+            "• Powered by Llama 3.3 (Groq)\n"
+            "• Conversation memory per user\n"
+            "• Cost tracking\n"
+        )
+        await update.message.reply_text(help_text, parse_mode='Markdown')
+    
+    async def clear_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Clear conversation history"""
+        user_id = update.effective_user.id
+        
+        if user_id in self.conversations:
+            del self.conversations[user_id]
+            await update.message.reply_text("✅ Conversation history cleared!")
+        else:
+            await update.message.reply_text("No conversation history to clear.")
+    
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show usage statistics"""
+        stats = self.router.get_stats()
+        user_id = update.effective_user.id
+        conversation_length = len(self.conversations.get(user_id, []))
+        
+        # Use .get() for safer dictionary access
+        stats_message = (
+            "📊 *Usage Statistics*\n\n"
+            f"*Total Requests:* {stats.get('total_requests', 0)}\n"
+            f"*Llama Calls:* {stats.get('llm_calls', 0)}\n"
+            f"*Total Cost:* ${stats.get('total_cost', 0.0):.4f}\n\n"
+            f"*Your Conversation:* {conversation_length} messages"
+        )
+        
+        await update.message.reply_text(stats_message, parse_mode='Markdown')
+    
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle regular text messages"""
+        user = update.effective_user
+        user_id = user.id
+        message_text = update.message.text
+        
+        logger.info(f"User {user_id} sent: {message_text[:50]}...")
+        
+        user_name = user.first_name if user.first_name else (user.username if user.username else None)
+        
+        if user_id not in self.conversations:
+            self.conversations[user_id] = []
+        
+        self.conversations[user_id].append({
+            "role": "user",
+            "content": message_text
+        })
         
         try:
-            # Updated to call Groq/Llama instead of GLM
-            response = await self._call_llama(message, conversation_history, user_name)
-            self.stats['llm_calls'] += 1
-            return response
-            
-        except Exception as e:
-            logger.error(f"LLM failed: {e}")
-            self.stats['llm_failures'] += 1
-            raise Exception("LLM API failed. Please try again later.")
-    
-    async def _call_llama(
-        self,
-        message: str,
-        conversation_history: List[Dict],
-        user_name: Optional[str] = None
-    ) -> str:
-        """
-        Call Llama 3.3 API (via Groq)
-        
-        Uses standard Bearer token authentication
-        """
-        # Using Groq's OpenAI-compatible endpoint
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        
-        # Prepare messages with system prompt
-        system_prompt = """You are Biscuit, a helpful AI assistant. Format your responses with proper structure and spacing:
-
-1. Use paragraph breaks (double newlines) between different topics or sections
-2. Use bullet points (• or -) for lists
-3. Use code blocks (```) for code examples
-4. Use bold (**text**) for emphasis on key terms
-5. Keep responses well-organized and easy to read
-6. Use numbered lists (1., 2., 3.) for sequential steps
-7. Use headers (#, ##, ###) sparingly for major sections
-8. Ensure proper spacing around formatting elements
-
-Your responses should be clean, well-structured, and visually appealing."""
-        
-        # Add personalization if user name is provided
-        if user_name:
-            system_prompt += f"\n\nYou are speaking with {user_name}. Address them by name when appropriate to create a more personalized conversation experience."
-        
-        # Add system prompt at the beginning
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        # Add conversation history
-        messages.extend(conversation_history[-10:] if len(conversation_history) > 10 else conversation_history)
-        
-        # Updated Model ID
-        model_id = "llama-3.3-70b-versatile"
-        
-        headers = {
-            "Authorization": f"Bearer {self.config.groq_api_key}", 
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": model_id,
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 2000
-        }
-        
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            
-            logger.info(f"LLM API Status: {response.status_code}")
-            
-            if response.status_code != 200:
-                error_text = response.text
-                logger.error(f"LLM API Error: {error_text}")
-                raise Exception(f"LLM API returned status {response.status_code}: {error_text}")
-            
-            data = response.json()
-            
-            # Extract response
-            content = data['choices'][0]['message']['content']
-            
-            # Track costs
-            usage = data.get('usage', {})
-            input_tokens = usage.get('prompt_tokens', 0)
-            output_tokens = usage.get('completion_tokens', 0)
-            
-            cost = self._calculate_cost('llama', input_tokens, output_tokens)
-            self.stats['total_cost'] += cost
-            
-            logger.info(
-                f"LLM: {input_tokens} in, {output_tokens} out, "
-                f"${cost:.4f}"
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id,
+                action="typing"
             )
             
-            return content
+            response = await self.router.get_response(
+                user_id=user_id,
+                message=message_text,
+                conversation_history=self.conversations[user_id],
+                user_name=user_name
+            )
+            
+            formatted_response = self._format_response(response)
+            
+            self.conversations[user_id].append({
+                "role": "assistant",
+                "content": formatted_response
+            })
+            
+            if len(self.conversations[user_id]) > 20:
+                self.conversations[user_id] = self.conversations[user_id][-20:]
+            
+            await update.message.reply_text(formatted_response, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Error handling message: {e}", exc_info=True)
+            await update.message.reply_text(
+                "❌ Sorry, I encountered an error processing your message. "
+                "Please try again or contact the administrator."
+            )
     
-    def _calculate_cost(
-        self, 
-        model: str, 
-        input_tokens: int, 
-        output_tokens: int
-    ) -> float:
-        """Calculate API call cost"""
-        pricing = self.pricing[model]
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
+        """Handle errors"""
+        logger.error(f"Exception while handling update: {context.error}", exc_info=context.error)
         
-        input_cost = (input_tokens / 1_000_000) * pricing['input']
-        output_cost = (output_tokens / 1_000_000) * pricing['output']
-        
-        return input_cost + output_cost
+        if isinstance(update, Update) and update.effective_message:
+            await update.effective_message.reply_text(
+                "An unexpected error occurred. The issue has been logged."
+            )
     
-    def get
+    def run(self):
+        """Start the bot"""
+        logger.info("Starting Telegram bot...")
+        
+        application = Application.builder().token(self.config.telegram_token).build()
+        
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("clear", self.clear_command))
+        application.add_handler(CommandHandler("stats", self.stats_command))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        application.add_error_handler(self.error_handler)
+        
+        logger.info("Bot is running...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    bot = TelegramBot()
+    bot.run()
