@@ -7,7 +7,7 @@ Designed for Render deployment
 import os
 import logging
 import json
-import asyncio  # <--- IMPORT ADDED FOR SLEEP/DELAY
+import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
 from telegram import Update
@@ -138,34 +138,34 @@ class TelegramBot:
         await update.message.reply_text(stats_message, parse_mode='Markdown')
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle regular text messages"""
+        """Handle regular text messages with pagination support"""
         user = update.effective_user
         user_id = user.id
         message_text = update.message.text
         
         logger.info(f"User {user_id} sent: {message_text[:50]}...")
         
-        # Get user's display name for personalization
+        # Get user's display name
         user_name = user.first_name if user.first_name else (user.username if user.username else None)
         
-        # Initialize conversation history if needed
+        # Initialize conversation history
         if user_id not in self.conversations:
             self.conversations[user_id] = []
         
-        # Add user message to history
         self.conversations[user_id].append({
             "role": "user",
             "content": message_text
         })
         
         try:
-            # Send typing indicator
+            # Show "typing..." status
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id,
                 action="typing"
             )
             
-            # Get response from LLM router
+            # 1. GET RESPONSE
+            # Fetch the full text from the AI
             response = await self.router.get_response(
                 user_id=user_id,
                 message=message_text,
@@ -173,56 +173,70 @@ class TelegramBot:
                 user_name=user_name
             )
             
-            # Post-process response for proper formatting
+            # 2. FORMAT RESPONSE
             formatted_response = self._format_response(response)
             
-            # --- SPLITTING LOGIC FOR LONG MESSAGES ---
-            MAX_MESSAGE_LENGTH = 4096
+            # ---------------------------------------------------------
+            # 3. PAGINATION LOGIC STARTS HERE
+            # ---------------------------------------------------------
+            
+            MAX_LENGTH = 4096  # Telegram's hard character limit
             current_text = formatted_response
-
+            
+            # Loop while there is still text left to send
             while len(current_text) > 0:
-                # Determine the chunk size
-                chunk = current_text[:MAX_MESSAGE_LENGTH]
                 
-                # If there is more text remaining, try to split at a newline
-                if len(current_text) > MAX_MESSAGE_LENGTH:
-                    # Find the last newline within the chunk
+                # A. Take a chunk of the max size
+                chunk = current_text[:MAX_LENGTH]
+                
+                # B. If there is MORE text after this chunk...
+                if len(current_text) > MAX_LENGTH:
+                    
+                    # Try to find the last NEWLINE character inside this chunk.
+                    # We want to split at a newline to avoid cutting a sentence or code block in half.
                     last_newline_index = chunk.rfind('\n')
                     
-                    # If a newline is found reasonably far back, split there
-                    if last_newline_index > MAX_MESSAGE_LENGTH * 0.8:
-                        chunk = chunk[:last_newline_index + 1]
-                        current_text = current_text[len(chunk):]
+                    # If a newline is found in the last 20% of the chunk, split there.
+                    # (The 0.8 ensures we don't split too early and send tiny messages).
+                    if last_newline_index > MAX_LENGTH * 0.8:
+                        chunk = chunk[:last_newline_index + 1] # Include the newline
+                        current_text = current_text[len(chunk):]  # Remove this chunk from the main text
                     else:
-                        # No good newline found, just split at the max length
-                        current_text = current_text[MAX_MESSAGE_LENGTH:]
+                        # If no newline is found, we are forced to split exactly at 4096 characters.
+                        current_text = current_text[MAX_LENGTH:]
+                
                 else:
-                    # This is the last chunk
+                    # This is the final remaining piece of text (it fits in one message)
                     current_text = ""
 
-                # Send the chunk
+                # C. SEND THE CHUNK
+                # We send this specific chunk to the user
                 await update.message.reply_text(chunk, parse_mode='Markdown')
                 
-                # Sleep briefly to avoid rate limits if there are more chunks
+                # D. SEQUENTIAL DELAY
+                # If there is MORE text to send next, pause for 0.5 seconds.
+                # This prevents Telegram from blocking the bot for "flooding".
                 if len(current_text) > 0:
                     await asyncio.sleep(0.5)
-            # -----------------------------------------
-
-            # Add the FULL assistant response to history
+            
+            # ---------------------------------------------------------
+            # 4. PAGINATION LOGIC ENDS HERE
+            # ---------------------------------------------------------
+            
+            # Save the FULL response to history (not just the chunks)
             self.conversations[user_id].append({
                 "role": "assistant",
                 "content": formatted_response
             })
             
-            # Keep conversation history manageable
+            # Trim history to last 20 messages
             if len(self.conversations[user_id]) > 20:
                 self.conversations[user_id] = self.conversations[user_id][-20:]
             
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
             await update.message.reply_text(
-                "❌ Sorry, I encountered an error processing your message. "
-                "Please try again or contact the administrator."
+                "❌ Sorry, I encountered an error processing your message."
             )
     
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
