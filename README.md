@@ -1,10 +1,4 @@
 
-
-Here is a clean, professional `README.md` file. It explains the project structure and setup instructions without revealing any of your actual tokens, keys, or sensitive code logic.
-
-You can create a file named `README.md` in your GitHub repository root and paste this content:
-
-```markdown
 # Biscuit AI Assistant
 
 A production-ready Telegram bot powered by Groq's Llama 3.3 70B Versatile model. This bot features conversation memory, cost tracking, and Markdown-formatted responses.
