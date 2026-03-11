@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Production-Ready Telegram Bot with Groq Llama 3.3 API Integration
-Designed for Render deployment
+Features Interactive Pagination for long responses.
 """
 
 import os
@@ -10,11 +10,12 @@ import json
 import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
     ContextTypes
 )
@@ -30,26 +31,23 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramBot:
-    """Main Telegram Bot class with LLM integration"""
+    """Main Telegram Bot class with LLM integration and Pagination"""
     
     def __init__(self):
         self.config = Config()
         self.router = LLMRouter(self.config)
         self.conversations: Dict[int, List[Dict]] = {}
+        
+        # Store paginated messages: { user_id: { 'chunks': [], 'message_id': int, 'page': int } }
+        self.paginated_messages: Dict[int, Dict] = {}
     
     def _format_response(self, response: str) -> str:
-        """
-        Post-process LLM response to ensure proper formatting and spacing.
-        """
-        # Ensure consistent line endings
+        """Post-process LLM response for formatting."""
         response = response.replace('\r\n', '\n').replace('\r', '\n')
-        
-        # Ensure double newlines between paragraphs
         response = '\n\n'.join(
             para.strip() for para in response.split('\n\n') if para.strip()
         )
         
-        # Ensure single newlines within paragraphs are preserved
         lines = response.split('\n')
         formatted_lines = []
         in_code_block = False
@@ -71,54 +69,87 @@ class TelegramBot:
         response = '\n'.join(formatted_lines)
         response = response.rstrip()
         return response
+
+    def _split_text(self, text: str, limit: int = 3500) -> List[str]:
+        """
+        Splits text into chunks, trying to break at newlines.
+        We use 3500 instead of 4096 to leave room for the "Page X/Y" footer and buttons.
+        """
+        if len(text) <= limit:
+            return [text]
+            
+        chunks = []
+        current_chunk = ""
+        
+        # Split by newlines first to preserve paragraphs
+        paragraphs = text.split('\n')
+        
+        for paragraph in paragraphs:
+            # If adding this paragraph exceeds limit
+            if len(current_chunk) + len(paragraph) + 1 > limit:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = paragraph + "\n"
+            else:
+                current_chunk += paragraph + "\n"
+                
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+            
+        # Fallback: If a single paragraph is HUGE, force split it
+        final_chunks = []
+        for chunk in chunks:
+            while len(chunk) > limit:
+                split_point = chunk.rfind(' ', 0, limit)
+                if split_point == -1: split_point = limit # No space found, force cut
+                final_chunks.append(chunk[:split_point])
+                chunk = chunk[split_point:].lstrip()
+            final_chunks.append(chunk)
+            
+        return final_chunks
         
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         user = update.effective_user
         logger.info(f"User {user.id} started the bot")
-        
         user_name = user.first_name if user.first_name else (user.username if user.username else "there")
         
         welcome_message = (
             f"👋 Hello {user_name}!\n\n"
             "Biscuit is online and ready to assist.\n\n"
-            "What I can do:\n"
-            "• General chat and conversation\n"
-            "• Coding assistance\n"
-            "• Deep analysis and explanations\n\n"
+            "Features:\n"
+            "• Smart Pagination for long messages\n"
+            "• Conversation memory\n"
+            "• Llama 3.3 Powered\n\n"
             "Commands:\n"
             "`/start` - Show menu\n"
             "`/clear` - Clear history\n"
             "`/stats` - View stats\n"
-            "`/help` - Get help\n\n"
-            "Powered by Llama 3.3 (Groq)"
+            "`/help` - Get help"
         )
-        
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         help_text = (
-            "🤖 *Bot Capabilities*\n\n"
-            "*General Chat:* Just talk to me naturally\n"
-            "*Coding Help:* Ask programming questions\n"
-            "*Analysis:* Request deep analysis on topics\n\n"
-            "*Technical Details:*\n"
-            "• Powered by Llama 3.3 (Groq)\n"
-            "• Conversation memory per user\n"
-            "• Cost tracking\n"
+            "🤖 *Bot Help*\n\n"
+            "I use **Pagination** for long responses.\n"
+            "If a response is long, you will see a **Read More >** button.\n"
+            "Click it to expand the message without cluttering the chat!"
         )
         await update.message.reply_text(help_text, parse_mode='Markdown')
     
     async def clear_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Clear conversation history"""
         user_id = update.effective_user.id
-        
         if user_id in self.conversations:
             del self.conversations[user_id]
-            await update.message.reply_text("✅ Conversation history cleared!")
+            # Also clear pagination state
+            if user_id in self.paginated_messages:
+                del self.paginated_messages[user_id]
+            await update.message.reply_text("✅ History cleared.")
         else:
-            await update.message.reply_text("No conversation history to clear.")
+            await update.message.reply_text("No history to clear.")
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show usage statistics"""
@@ -126,46 +157,33 @@ class TelegramBot:
         user_id = update.effective_user.id
         conversation_length = len(self.conversations.get(user_id, []))
         
-        # Use .get() for safer dictionary access
         stats_message = (
-            "📊 *Usage Statistics*\n\n"
-            f"*Total Requests:* {stats.get('total_requests', 0)}\n"
-            f"*Llama Calls:* {stats.get('llm_calls', 0)}\n"
-            f"*Total Cost:* ${stats.get('total_cost', 0.0):.4f}\n\n"
-            f"*Your Conversation:* {conversation_length} messages"
+            "📊 *Stats*\n\n"
+            f"Requests: {stats.get('total_requests', 0)}\n"
+            f"LLM Calls: {stats.get('llm_calls', 0)}\n"
+            f"Cost: ${stats.get('total_cost', 0.0):.4f}\n\n"
+            f"Conv Length: {conversation_length} msgs"
         )
-        
         await update.message.reply_text(stats_message, parse_mode='Markdown')
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle regular text messages with pagination support"""
+        """Handle regular text messages"""
         user = update.effective_user
         user_id = user.id
         message_text = update.message.text
         
         logger.info(f"User {user_id} sent: {message_text[:50]}...")
         
-        # Get user's display name
         user_name = user.first_name if user.first_name else (user.username if user.username else None)
         
-        # Initialize conversation history
         if user_id not in self.conversations:
             self.conversations[user_id] = []
         
-        self.conversations[user_id].append({
-            "role": "user",
-            "content": message_text
-        })
+        self.conversations[user_id].append({"role": "user", "content": message_text})
         
         try:
-            # Show "typing..." status
-            await context.bot.send_chat_action(
-                chat_id=update.effective_chat.id,
-                action="typing"
-            )
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
             
-            # 1. GET RESPONSE
-            # Fetch the full text from the AI
             response = await self.router.get_response(
                 user_id=user_id,
                 message=message_text,
@@ -173,84 +191,100 @@ class TelegramBot:
                 user_name=user_name
             )
             
-            # 2. FORMAT RESPONSE
             formatted_response = self._format_response(response)
             
-            # ---------------------------------------------------------
-            # 3. PAGINATION LOGIC STARTS HERE
-            # ---------------------------------------------------------
-            
-            MAX_LENGTH = 4096  # Telegram's hard character limit
-            current_text = formatted_response
-            
-            # Loop while there is still text left to send
-            while len(current_text) > 0:
-                
-                # A. Take a chunk of the max size
-                chunk = current_text[:MAX_LENGTH]
-                
-                # B. If there is MORE text after this chunk...
-                if len(current_text) > MAX_LENGTH:
-                    
-                    # Try to find the last NEWLINE character inside this chunk.
-                    # We want to split at a newline to avoid cutting a sentence or code block in half.
-                    last_newline_index = chunk.rfind('\n')
-                    
-                    # If a newline is found in the last 20% of the chunk, split there.
-                    # (The 0.8 ensures we don't split too early and send tiny messages).
-                    if last_newline_index > MAX_LENGTH * 0.8:
-                        chunk = chunk[:last_newline_index + 1] # Include the newline
-                        current_text = current_text[len(chunk):]  # Remove this chunk from the main text
-                    else:
-                        # If no newline is found, we are forced to split exactly at 4096 characters.
-                        current_text = current_text[MAX_LENGTH:]
-                
-                else:
-                    # This is the final remaining piece of text (it fits in one message)
-                    current_text = ""
-
-                # C. SEND THE CHUNK
-                # We send this specific chunk to the user
-                await update.message.reply_text(chunk, parse_mode='Markdown')
-                
-                # D. SEQUENTIAL DELAY
-                # If there is MORE text to send next, pause for 0.5 seconds.
-                # This prevents Telegram from blocking the bot for "flooding".
-                if len(current_text) > 0:
-                    await asyncio.sleep(0.5)
-            
-            # ---------------------------------------------------------
-            # 4. PAGINATION LOGIC ENDS HERE
-            # ---------------------------------------------------------
-            
-            # Save the FULL response to history (not just the chunks)
-            self.conversations[user_id].append({
-                "role": "assistant",
-                "content": formatted_response
-            })
-            
-            # Trim history to last 20 messages
+            # SAVE TO HISTORY (Save full text, not just chunk)
+            self.conversations[user_id].append({"role": "assistant", "content": formatted_response})
             if len(self.conversations[user_id]) > 20:
                 self.conversations[user_id] = self.conversations[user_id][-20:]
+
+            # --- PAGINATION LOGIC ---
+            chunks = self._split_text(formatted_response)
             
+            # If only 1 chunk (Short message), send normally
+            if len(chunks) == 1:
+                await update.message.reply_text(chunks[0], parse_mode='Markdown')
+            
+            # If multiple chunks, start Pagination Mode
+            else:
+                # Store chunks for this user
+                self.paginated_messages[user_id] = {
+                    'chunks': chunks,
+                    'page': 0
+                }
+                
+                # Create "Read More" button for Page 1
+                keyboard = [[InlineKeyboardButton("Read More > (1/{})".format(len(chunks)), callback_data=f"next_{user_id}_1")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(chunks[0], parse_mode='Markdown', reply_markup=reply_markup)
+
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
-            await update.message.reply_text(
-                "❌ Sorry, I encountered an error processing your message."
-            )
-    
-    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
-        """Handle errors"""
-        logger.error(f"Exception while handling update: {context.error}", exc_info=context.error)
+            await update.message.reply_text("❌ Sorry, something went wrong.")
+
+    async def pagination_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle button clicks for pagination (Next/Prev)"""
+        query = update.callback_query
+        await query.answer() # Acknowledge the click
         
-        if isinstance(update, Update) and update.effective_message:
-            await update.effective_message.reply_text(
-                "An unexpected error occurred. The issue has been logged."
+        user_id = query.from_user.id
+        
+        # Parse callback data: "next_userID_pageIndex" or "prev_userID_pageIndex"
+        action, uid_str, page_str = query.data.split('_')
+        target_user_id = int(uid_str)
+        target_page = int(page_str)
+        
+        # Security check: Ensure user is only clicking their own buttons
+        if user_id != target_user_id:
+            return
+
+        # Retrieve stored data
+        if user_id not in self.paginated_messages:
+            await query.edit_message_text("This message has expired.")
+            return
+
+        data = self.paginated_messages[user_id]
+        chunks = data['chunks']
+        total_pages = len(chunks)
+        
+        # Update page
+        data['page'] = target_page
+        
+        # Prepare buttons
+        keyboard = []
+        buttons = []
+        
+        # Previous Button
+        if target_page > 0:
+            buttons.append(InlineKeyboardButton("< Prev", callback_data=f"prev_{user_id}_{target_page - 1}"))
+        
+        # Next Button
+        if target_page < total_pages - 1:
+            buttons.append(InlineKeyboardButton(f"Next > ({target_page + 1}/{total_pages})", callback_data=f"next_{user_id}_{target_page + 1}"))
+        else:
+            # This is the last page, maybe add a "Back to Start" button?
+            if total_pages > 1:
+                 buttons.append(InlineKeyboardButton("<< Start", callback_data=f"prev_{user_id}_0"))
+        
+        if buttons:
+            keyboard.append(buttons)
+            
+        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+        
+        # Update the message
+        try:
+            await query.edit_message_text(
+                text=chunks[target_page],
+                parse_mode='Markdown',
+                reply_markup=reply_markup
             )
-    
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+
     def run(self):
         """Start the bot"""
-        logger.info("Starting Telegram bot...")
+        logger.info("Starting Telegram bot with Pagination...")
         
         application = Application.builder().token(self.config.telegram_token).build()
         
@@ -258,8 +292,11 @@ class TelegramBot:
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("clear", self.clear_command))
         application.add_handler(CommandHandler("stats", self.stats_command))
+        
+        # Add the Pagination Button Handler
+        application.add_handler(CallbackQueryHandler(self.pagination_callback, pattern="^(next|prev)_"))
+        
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-        application.add_error_handler(self.error_handler)
         
         logger.info("Bot is running...")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
