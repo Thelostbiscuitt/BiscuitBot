@@ -6,14 +6,15 @@ logger = logging.getLogger(__name__)
 class ImageHandler:
     def __init__(self, api_key):
         self.api_key = api_key
-        # CORRECTED URL: This is the standard Zero1/Z.AI endpoint
-        self.base_url = "https://api.zero1.ai/v1/images/generations"
-        self.model = "flux-v1.1-pro" 
+        # CORRECTED URL for z-image.ai
+        self.base_url = "https://api.z-image.ai/v1/images/generations"
+        
+        # Common model name for Flux on this platform
+        self.model = "flux" 
 
     async def generate_image(self, prompt: str):
         """
-        Generates an image using Z.AI (Zero1) API.
-        Returns the image URL or None if failed.
+        Generates an image using z-image.ai API.
         """
         if not self.api_key:
             logger.error("Z.AI API Key not configured.")
@@ -35,19 +36,22 @@ class ImageHandler:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(self.base_url, headers=headers, json=payload)
                 
+                # Logging for debugging
+                logger.info(f"Z-Image Status Code: {response.status_code}")
+                logger.info(f"Z-Image Response Body: {response.text}")
+                
                 if response.status_code != 200:
-                    logger.error(f"Z.AI API Error: {response.status_code} - {response.text}")
+                    logger.error(f"Z-Image API Request Failed. Details: {response.text}")
                     return None
                 
                 data = response.json()
                 
-                # Z.AI/Zero1 uses the standard OpenAI response format
                 if 'data' in data and len(data['data']) > 0:
                     return data['data'][0]['url']
                 else:
-                    logger.error("No image data in Z.AI response.")
+                    logger.error(f"No image URL found in response. Data: {data}")
                     return None
 
         except Exception as e:
-            logger.error(f"Error generating image: {e}")
+            logger.error(f"Exception during image generation: {e}")
             return None
