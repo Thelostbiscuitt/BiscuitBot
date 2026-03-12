@@ -21,7 +21,7 @@ class ImageHandler:
             "Content-Type": "application/json"
         }
 
-        # Simplified payload: Let the API decide the default model/size
+        # Simplified payload
         payload = {
             "prompt": prompt,
             "n": 1
@@ -35,7 +35,6 @@ class ImageHandler:
                 logger.info(f"Z-Image Response Body: {response.text}")
                 
                 if response.status_code != 200:
-                    # Return the specific error message
                     error_detail = response.text
                     return False, f"API Error {response.status_code}: {error_detail}"
                 
