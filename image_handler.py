@@ -6,8 +6,9 @@ logger = logging.getLogger(__name__)
 class ImageHandler:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.base_url = "https://api.z.ai/v1/images/generations"
-        self.model = "flux-v1.1-pro" # Default model (fast and high quality)
+        # CORRECTED URL: This is the standard Zero1/Z.AI endpoint
+        self.base_url = "https://api.zero1.ai/v1/images/generations"
+        self.model = "flux-v1.1-pro" 
 
     async def generate_image(self, prompt: str):
         """
@@ -40,7 +41,7 @@ class ImageHandler:
                 
                 data = response.json()
                 
-                # Extract URL from standard OpenAI-format response
+                # Z.AI/Zero1 uses the standard OpenAI response format
                 if 'data' in data and len(data['data']) > 0:
                     return data['data'][0]['url']
                 else:
