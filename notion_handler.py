@@ -43,10 +43,9 @@ class NotionHandler:
                     },
                     "Date Added": {
                         "date": {
-                            "start": datetime.now().isoformat() # Shows today's date
+                            "start": datetime.now().isoformat()
                         }
                     },
-                    # CHANGED "select" to "status" to match your Notion Column Type
                     "Status": {
                         "status": {
                             "name": "To Read"
@@ -59,3 +58,41 @@ class NotionHandler:
         except Exception as e:
             logger.error(f"Failed to add book to Notion: {e}")
             return False
+
+    def get_books(self):
+        """Retrieves all books from the Notion database"""
+        if not self.client:
+            logger.error("Notion client not initialized.")
+            return []
+
+        try:
+            response = self.client.databases.query(database_id=self.database_id)
+            books = []
+            
+            for result in response.get("results", []):
+                try:
+                    # Extract Title safely
+                    title_data = result["properties"]["Name"]["title"]
+                    if title_data:
+                        title = title_data[0]["text"]["content"]
+                    else:
+                        title = "Untitled"
+                    
+                    # Extract Author safely
+                    author_data = result["properties"]["Author"]["rich_text"]
+                    if author_data:
+                        author = author_data[0]["text"]["content"]
+                    else:
+                        author = "Unknown Author"
+
+                    books.append({"title": title, "author": author})
+                except Exception as e:
+                    logger.warning(f"Could not parse a row: {e}")
+                    continue
+            
+            logger.info(f"Retrieved {len(books)} books from Notion.")
+            return books
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve books from Notion: {e}")
+            return []
