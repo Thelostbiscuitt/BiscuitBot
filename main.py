@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Production-Ready Telegram Bot with Groq Llama 3.3 + Notion + Image Gen + PDF Text Extraction
-Features: Pagination, Notion Book Upload/Retrieve, Image Generation, Full Command Support, PDF Reading.
+Features: Pagination, Notion Book Upload/Retrieve, Image Generation, Full Command Support, PDF Reading, Smart Search.
 """
 
 import os
@@ -154,7 +154,7 @@ class TelegramBot:
             "• `/clear` - Wipe your conversation memory.\n\n"
             "**Reading Books:**\n"
             "Upload a PDF. I will extract the text.\n"
-            "Ask: 'What does [Book Name] say about [Topic]?' and I will search the book text for you."
+            "Ask: 'What does [Book Name] say about [Topic]?' or 'Find [Topic] in my books' and I will search the text for you."
         )
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -350,10 +350,10 @@ class TelegramBot:
         del self.book_upload_state[user_id]
         return ConversationHandler.END
 
-    # ================= CHAT LOGIC WITH TEXT SEARCH =================
+    # ================= CHAT LOGIC WITH SMART TEXT SEARCH =================
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle messages with Naive RAG (Keyword Search in Extracted Text)"""
+        """Handle messages with Smart RAG (Keyword Search in Extracted Text)"""
         user = update.effective_user
         user_id = user.id
         message_text = update.message.text
@@ -362,49 +362,63 @@ class TelegramBot:
         
         user_name = user.first_name if user.first_name else (user.username if user.username else None)
         
-        # --- NEW: Search Book Content ---
-        # Check if user is asking about a book (simple keyword match on book titles)
+        # --- SMART BOOK SEARCH ---
         relevant_snippet = ""
-        books_found = []
-
+        
+        # 1. Check if the user is asking about books generally
         if "book" in message_text.lower() or "notion" in message_text.lower() or "library" in message_text.lower():
-            # First, list what we have
-            for title, content in self.book_library_content.items():
-                if title.lower() in message_text.lower():
-                    books_found.append(title)
             
-            # If a specific book is mentioned, search its text
-            if not books_found:
-                # Try to find the book by keyword in the user query
+            # 2. Strategy: Check if a specific book is mentioned
+            specific_book_found = False
+            matched_book_title = ""
+            
+            for title in self.book_library_content.keys():
+                if title.lower() in message_text.lower() or message_text.lower() in title.lower():
+                    specific_book_found = True
+                    matched_book_title = title
+                    break
+            
+            # 3. If no specific book is mentioned, search ALL books for keywords
+            search_keywords = [w for w in message_text.split() if len(w) > 3]
+            best_snippet = ""
+            highest_score = 0
+
+            if not specific_book_found:
+                # Search across the entire library
                 for title, content in self.book_library_content.items():
-                    if title.lower() in message_text.lower() or message_text.lower() in title.lower():
-                        books_found.append(title)
-            
-            if books_found:
-                # Simple keyword search: Find the paragraph containing the user's query
-                query_words = [w for w in message_text.split() if len(w) > 3] # Ignore short words
-                best_snippet = ""
-                
-                for book_title in books_found:
-                    content = self.book_library_content[book_title]
-                    # Naive search: find the paragraph containing the most keywords
+                    # Split content into paragraphs
                     paragraphs = content.split('\n\n')
-                    best_score = 0
-                    
                     for para in paragraphs:
                         score = 0
-                        for word in query_words:
+                        # Score based on keyword matches in this paragraph
+                        for word in search_keywords:
                             if word.lower() in para.lower():
                                 score += 1
                         
-                        if score > best_score and len(para) < 1000: # Keep it reasonable size
-                            best_score = score
-                            best_snippet = f"From the book '{book_title}':\n\n{para}"
-                
-                if best_snippet:
-                    relevant_snippet = best_snippet
+                        # If this paragraph has keywords and is a good length, consider it
+                        if score > 0 and len(para) > 50 and len(para) < 1500:
+                            if score > highest_score:
+                                highest_score = score
+                                best_snippet = f"From the book '{title}':\n\n{para}"
+            else:
+                # Search specifically the matched book
+                content = self.book_library_content[matched_book_title]
+                paragraphs = content.split('\n\n')
+                for para in paragraphs:
+                    score = 0
+                    for word in search_keywords:
+                        if word.lower() in para.lower():
+                            score += 1
+                    if score > 0 and len(para) > 50 and len(para) < 1500:
+                        if score > highest_score:
+                            highest_score = score
+                            best_snippet = f"From the book '{matched_book_title}':\n\n{para}"
+
+            if best_snippet:
+                relevant_snippet = best_snippet
 
         if relevant_snippet:
+            # Inject the found text into the prompt
             message_text = (
                 f"Based on the following text from your books:\n\n"
                 f"{relevant_snippet}\n\n"
@@ -520,7 +534,7 @@ class TelegramBot:
 
     def run(self):
         """Start the bot"""
-        logger.info("Starting bot with LLM, Notion, Image Gen, and PDF Text Extraction...")
+        logger.info("Starting bot with LLM, Notion, Image Gen, and PDF Text Extraction (Smart Search)...")
         
         application = Application.builder().token(self.config.telegram_token).build()
         
