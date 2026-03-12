@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Production-Ready Telegram Bot with Groq Llama 3.3 + Notion + Z.AI Image Gen
-Features: Pagination, Notion Book Upload, Image Generation, Full Command Support.
+Features: Pagination, Notion Book Upload, Image Generation (Debug Mode), Full Command Support.
 """
 
 import os
@@ -24,7 +24,7 @@ from telegram.ext import (
 from llm_router import LLMRouter
 from config import Config
 from notion_handler import NotionHandler
-from image_handler import ImageHandler # <--- NEW IMPORT
+from image_handler import ImageHandler
 
 # Configure logging
 logging.basicConfig(
@@ -48,7 +48,7 @@ class TelegramBot:
         self.notion = NotionHandler(self.config.notion_api_key, self.config.notion_database_id)
         
         # Initialize Image Handler (Z.AI)
-        self.image_handler = ImageHandler(self.config.zai_api_key) # <--- NEW INITIALIZATION
+        self.image_handler = ImageHandler(self.config.zai_api_key)
         
         self.conversations: Dict[int, List[Dict]] = {}
         self.paginated_messages: Dict[int, Dict] = {}
@@ -177,16 +177,19 @@ class TelegramBot:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
         await update.message.reply_text(f"🎨 Generating image for: *{prompt}*...", parse_mode='Markdown')
         
-        image_url = await self.image_handler.generate_image(prompt)
+        # The handler returns a tuple (success, result)
+        success, result = await self.image_handler.generate_image(prompt)
         
-        if image_url:
+        if success:
+            # result is the Image URL
             try:
-                await update.message.reply_photo(photo=image_url, caption=f"✨ {prompt}")
+                await update.message.reply_photo(photo=result, caption=f"✨ {prompt}")
             except Exception as e:
                 logger.error(f"Failed to send photo: {e}")
-                await update.message.reply_text("Image generated, but failed to send. Here is the link:\n" + image_url)
+                await update.message.reply_text("Image generated, but failed to send. Here is the link:\n" + result)
         else:
-            await update.message.reply_text("❌ Failed to generate image. The service might be busy or the prompt was blocked.")
+            # result is the Error Message
+            await update.message.reply_text(f"❌ Failed: {result}")
 
     async def models_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """List models"""
@@ -194,7 +197,7 @@ class TelegramBot:
             "🤖 **Active Model Configuration**\n\n"
             "• **LLM Name:** Llama 3.3 70B Versatile\n"
             "• **LLM Provider:** Groq\n"
-            "• **Image Gen:** Z.AI (Flux-v1.1-pro)\n\n"
+            "• **Image Gen:** Z.AI (Flux)\n\n"
             "Optimized for high speed and complex reasoning."
         )
         await update.message.reply_text(model_info, parse_mode='Markdown')
@@ -461,7 +464,7 @@ class TelegramBot:
         
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.help_command))
-        application.add_handler(CommandHandler("image", self.image_command)) # <--- NEW
+        application.add_handler(CommandHandler("image", self.image_command))
         application.add_handler(CommandHandler("models", self.models_command))
         application.add_handler(CommandHandler("history", self.history_command))
         application.add_handler(CommandHandler("clear", self.clear_command))
