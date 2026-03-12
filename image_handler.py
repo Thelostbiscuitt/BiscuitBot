@@ -35,13 +35,14 @@ class ImageHandler:
                 logger.info(f"Stability AI Status: {response.status_code}")
 
                 if response.status_code != 200:
-                    # FIX: Manually decode bytes to string to avoid async/text property issues
+                    # Manually decode bytes to string
                     error_bytes = response.content
                     error_text = error_bytes.decode("utf-8")
                     return False, f"Stability AI Error {response.status_code}: {error_text}"
                 
-                # Read the image bytes
-                image_bytes = await response.read()
+                # FIX: Use .content (sync property) instead of await .read() (async method)
+                # This removes the "bytes is not awaitable" conflict.
+                image_bytes = response.content
                 
                 return True, image_bytes
 
