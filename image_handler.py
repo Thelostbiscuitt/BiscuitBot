@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 class ImageHandler:
     def __init__(self, api_key):
         self.api_key = api_key
-        # Stable Diffusion 3 Turbo Endpoint (Fastest and Best Quality)
+        # Stable Diffusion 3 Turbo Endpoint
         self.url = "https://api.stability.ai/v2beta/stable-image/generate/sd3"
         
     async def generate_image(self, prompt: str):
@@ -19,10 +19,10 @@ class ImageHandler:
 
         headers = {
             "authorization": f"Bearer {self.api_key}",
-            "accept": "image/*" # Tell the API to send us raw image bytes
+            "accept": "image/*"
         }
 
-        # Form data is required for this specific Stability endpoint
+        # Form data for the API
         data = {
             "prompt": prompt,
             "output_format": "jpeg"
@@ -35,7 +35,9 @@ class ImageHandler:
                 logger.info(f"Stability AI Status: {response.status_code}")
 
                 if response.status_code != 200:
-                    error_text = await response.text()
+                    # FIX: Changed 'await response.text()' to 'response.text'
+                    # httpx uses .text as a property, not a method
+                    error_text = response.text
                     return False, f"Stability AI Error {response.status_code}: {error_text}"
                 
                 # Read the image bytes
