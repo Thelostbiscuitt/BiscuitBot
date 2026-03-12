@@ -40,6 +40,15 @@ class Config:
                 "Book upload feature will be disabled."
             )
         
+        # --- OPTIONAL: Z.AI Image Generation ---
+        self.zai_api_key = os.getenv('ZAI_API_KEY')
+        
+        if not self.zai_api_key:
+            logger.warning(
+                "ZAI_API_KEY not found. "
+                "Image generation feature will be disabled."
+            )
+        
         # --- Bot Settings ---
         
         # Optional: Authorized user IDs (for access control)
