@@ -1,6 +1,7 @@
 import logging
 import httpx
 import urllib.parse
+import time # Using standard python time module
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,8 @@ class ImageHandler:
             
             # Pollinations URL
             # nologo=true removes the watermark
-            url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true&seed={int(httpx.utils.now().timestamp())}"
+            # seed ensures we get a unique image every time
+            url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true&seed={int(time.time())}"
             
             logger.info(f"Pollinations URL: {url}")
 
