@@ -154,7 +154,7 @@ class TelegramBot:
             "• `/cancel` - Stop any ongoing process (like a book upload).\n\n"
             "**Chatting:**\n"
             "Just send a text message to chat.\n\n"
-            **Notion Integration:**\n"
+            "**Notion Integration:**\n"  # Fixed Quote here
             "Upload a PDF to save a book.\n"
             "Ask about 'books' or 'notion' to retrieve your library list for analysis."
         )
