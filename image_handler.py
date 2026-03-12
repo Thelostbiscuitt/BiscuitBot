@@ -6,7 +6,6 @@ logger = logging.getLogger(__name__)
 class ImageHandler:
     def __init__(self, api_key):
         self.api_key = api_key
-        # CHANGED: Pointing to Creem's API based on the Attribution page
         self.base_url = "https://api.creem.io/v1/images/generations"
         
     async def generate_image(self, prompt: str):
@@ -22,13 +21,12 @@ class ImageHandler:
             "Content-Type": "application/json"
         }
 
-        # CHANGED: Using the specific model name "Z-Image-Turbo" mentioned in your text
+        # ATTEMPTING: "flux" as the model name instead of "Z-Image-Turbo"
+        # REMOVED "size" to let it default
         payload = {
-            "model": "Z-Image-Turbo",
+            "model": "flux", 
             "prompt": prompt,
-            "n": 1,
-            # Adding size parameter to ensure standard behavior
-            "size": "1024x1024" 
+            "n": 1
         }
 
         try:
