@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Production-Ready Telegram Bot with Groq Llama 3.3 + Notion + Hugging Face Image Gen
-Features: Pagination, Notion Book Upload, Image Generation, Full Command Support.
+Production-Ready Telegram Bot with Groq Llama 3.3 + Notion + Image Gen
+Features: Pagination, Notion Book Upload/Retrieve, Image Generation, Full Command Support.
 """
 
 import os
@@ -47,8 +47,7 @@ class TelegramBot:
         # Initialize Notion Handler
         self.notion = NotionHandler(self.config.notion_api_key, self.config.notion_database_id)
         
-        # Initialize Image Handler (Now using Hugging Face)
-        # Note: We pass zai_api_key even though it's HF, to avoid changing Config variable names
+        # Initialize Image Handler (Hugging Face or Stability AI)
         self.image_handler = ImageHandler(self.config.zai_api_key)
         
         self.conversations: Dict[int, List[Dict]] = {}
@@ -130,13 +129,14 @@ class TelegramBot:
             "**Available Commands:**\n"
             "`/start` - Initialize bot\n"
             "`/help` - Display help\n"
-            "`/image <prompt>` - Generate an image (Hugging Face)\n"
+            "`/image <prompt>` - Generate an image\n"
             "`/models` - List active model\n"
             "`/history` - Show conversation history\n"
             "`/clear` - Clear history\n"
             "`/cancel` - Cancel any operation\n\n"
             "**Features:**\n"
             "• Upload PDFs to save to Notion\n"
+            "• Ask about books in your library\n"
             "• Chat with Llama 3.3"
         )
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
@@ -146,22 +146,22 @@ class TelegramBot:
         help_text = (
             "📚 **Help Guide**\n\n"
             "**Commands:**\n"
-            "• `/image <prompt>` - Generate an AI image using Hugging Face.\n"
+            "• `/image <prompt>` - Generate an AI image.\n"
             "• `/start` - Restart the session and see the menu.\n"
             "• `/models` - Check which AI model is currently active.\n"
             "• `/history` - View a summary of your recent chat.\n"
             "• `/clear` - Wipe your conversation memory.\n"
             "• `/cancel` - Stop any ongoing process (like a book upload).\n\n"
             "**Chatting:**\n"
-            "Just send a text message to chat. Long responses are paginated.\n\n"
-            "**Books:**\n"
-            "Upload a PDF file, and I will guide you to save it to Notion."
+            "Just send a text message to chat.\n\n"
+            **Notion Integration:**\n"
+            "Upload a PDF to save a book.\n"
+            "Ask about 'books' or 'notion' to retrieve your library list for analysis."
         )
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
     async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Generate an image using Hugging Face"""
-        # We use the config key 'zai_api_key' but it holds the HF token
+        """Generate an image"""
         if not self.config.zai_api_key:
             await update.message.reply_text("⚠️ Image generation is not configured (Missing API Key).")
             return
@@ -179,13 +179,12 @@ class TelegramBot:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
         await update.message.reply_text(f"🎨 Generating image for: *{prompt}*...", parse_mode='Markdown')
         
-        # The handler returns (Success: bool, Result: bytes_or_error_message)
+        # Handler returns (Success: bool, Result: bytes_or_error_message)
         success, result = await self.image_handler.generate_image(prompt)
         
         if success:
             # result is the Image BYTES
             try:
-                # Telegram accepts raw bytes directly
                 await update.message.reply_photo(photo=result, caption=f"✨ {prompt}")
             except Exception as e:
                 logger.error(f"Failed to send photo: {e}")
@@ -200,7 +199,7 @@ class TelegramBot:
             "🤖 **Active Model Configuration**\n\n"
             "• **LLM Name:** Llama 3.3 70B Versatile\n"
             "• **LLM Provider:** Groq\n"
-            "• **Image Gen:** Hugging Face (Stable Diffusion XL)\n\n"
+            "• **Image Gen:** Stability AI (SD3)\n\n"
             "Optimized for high speed and complex reasoning."
         )
         await update.message.reply_text(model_info, parse_mode='Markdown')
@@ -333,7 +332,7 @@ class TelegramBot:
     # ================= CHAT LOGIC =================
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle regular text messages (Chat)"""
+        """Handle regular text messages (Chat) with Notion Context Injection"""
         user = update.effective_user
         user_id = user.id
         message_text = update.message.text
@@ -342,6 +341,22 @@ class TelegramBot:
         
         user_name = user.first_name if user.first_name else (user.username if user.username else None)
         
+        # --- NEW: Notion Context Injection ---
+        # If user mentions books/notion, fetch data and inject it
+        if "book" in message_text.lower() or "notion" in message_text.lower() or "library" in message_text.lower():
+            books = self.notion.get_books()
+            
+            if books:
+                book_list = "\n".join([f"- {b['title']} by {b['author']}" for b in books])
+                # Inject the book list into the message sent to AI
+                message_text = (
+                    f"Here is the list of books currently saved in the Notion Library:\n{book_list}\n\n"
+                    f"User Question: {message_text}\n\n"
+                    "Please answer the user's question based on these books."
+                )
+                logger.info("Notion data injected into conversation.")
+        # ---------------------------------------
+
         if user_id not in self.conversations:
             self.conversations[user_id] = []
         
@@ -448,7 +463,7 @@ class TelegramBot:
 
     def run(self):
         """Start the bot"""
-        logger.info("Starting bot with LLM, Notion, and Hugging Face Image Generation...")
+        logger.info("Starting bot with LLM, Notion (Read/Write), and Image Generation...")
         
         application = Application.builder().token(self.config.telegram_token).build()
         
