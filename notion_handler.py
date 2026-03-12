@@ -1,5 +1,6 @@
 import logging
 from notion_client import Client
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +43,13 @@ class NotionHandler:
                     },
                     "Date Added": {
                         "date": {
-                            "start": "2023-01-01" # Placeholder or use datetime.now()
+                            "start": datetime.now().isoformat() # Shows today's date
                         }
                     },
+                    # CHANGED "select" to "status" to match your Notion Column Type
                     "Status": {
-                        "select": {
-                            "name": "To Read" # Make sure this option exists in Notion
+                        "status": {
+                            "name": "To Read"
                         }
                     }
                 }
