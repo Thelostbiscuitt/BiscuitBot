@@ -7,12 +7,12 @@ logger = logging.getLogger(__name__)
 class ImageHandler:
     def __init__(self, api_key):
         self.api_key = api_key
-        # Using Stable Diffusion XL (High Quality, Free Tier)
-        self.base_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+        # UPDATED: Using the new Router URL as requested by the error message
+        self.base_url = "https://router.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
         
     async def generate_image(self, prompt: str):
         """
-        Generates an image using Hugging Face Inference API.
+        Generates an image using Hugging Face Inference API (New Router).
         Returns: (Success: bool, Data: bytes_or_error_message)
         """
         if not self.api_key:
@@ -23,7 +23,6 @@ class ImageHandler:
             "Content-Type": "application/json"
         }
 
-        # Hugging Face uses "inputs" for the prompt
         payload = {
             "inputs": prompt
         }
@@ -36,10 +35,9 @@ class ImageHandler:
                 
                 if response.status_code != 200:
                     error_text = response.text
-                    # Hugging Face errors are often in HTML or JSON
                     return False, f"API Error {response.status_code}: {error_text[:200]}"
                 
-                # Hugging Face returns the image bytes directly, not a URL
+                # Hugging Face returns the image bytes directly
                 image_bytes = await response.read()
                 
                 return True, image_bytes
