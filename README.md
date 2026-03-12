@@ -1,76 +1,113 @@
+# Biscuit AI Assistant
 
-# Biscuit AI Assistant & Library Manager
+A production-ready Telegram bot that combines advanced LLM capabilities, Notion integration, and image generation. It features a "read-then-query" engine that extracts text from uploaded PDFs, allowing users to interact with their personal library via natural language.
 
-A production-ready Telegram bot powered by Llama 3.3 (via Groq) with integrated Notion library management. Features intelligent conversation handling, smart message pagination, and automated book tracking.
+# Features
 
-## Features
+- **AI Chat:** Powered by high-speed LLMs for context-aware conversation, coding assistance, and analysis.
+- **Intelligent Notion Integration:**
+    - **PDF Ingestion:** Upload a PDF, and the bot automatically extracts and indexes the text.
+    - **Content Querying:** Ask questions about the content of your uploaded books, and the bot retrieves relevant paragraphs to answer accurately.
+    - **Library Management:** Save metadata (Title, Author) directly to your Notion database.
+- **Image Generation:** Create visuals directly within the chat using integrated generation APIs.
+- **Conversation Management:** Smart pagination for long responses, memory management, and chat history.
 
-- **AI Chat:** Interact with Llama 3.3 70B for advanced reasoning and coding assistance.
-- **Smart Pagination:** Automatically splits long responses into navigable sections to avoid character limits.
-- **Notion Integration:** Upload books directly to chat to automatically save metadata to your Notion library.
-- **Conversation Memory:** Maintains context during sessions.
-- **Modular Architecture:** Clean separation of concerns (API, Logic, Configuration).
-
-## Tech Stack
+# Tech Stack
 
 - **Runtime:** Python 3.9+
 - **Bot Framework:** `python-telegram-bot`
-- **AI Model:** Groq API (Llama 3.3)
+- **LLM Provider:** Groq (Llama 3.3 70B)
+- **Image Provider:** Stability AI
 - **Integration:** Notion API
+- **PDF Processing:** PyMuPDF (fitz)
 - **Deployment:** Render (Background Worker)
 
-## Quick Start
+# Getting Started
 
-### 1. Clone and Install
+# 1. Prerequisites
+
+- A Telegram Bot Token (from [@BotFather](https://t.me/BotFather)).
+- An API Key for Groq (for chat).
+- An API Key for Stability AI (for images).
+- A Notion Integration Token and Database ID (for library management).
+
+### 2. Installation
+
+Clone the repository and install dependencies:
+
 ```bash
 git clone https://github.com/your-username/your-repo.git
 cd your-repo
 pip install -r requirements.txt
 ```
 
-### 2. Configuration
-Rename `.env.example` to `.env` and configure your environment variables.
+# 3. Configuration
+
+The bot relies on environment variables for security. Create a `.env` file locally or configure them in your deployment dashboard.
 
 | Variable Name | Description |
 | :--- | :--- |
-| `TELEGRAM_BOT_TOKEN` | Your bot token from @BotFather |
-| `GROQ_API_KEY` | API key for Groq services |
-| `NOTION_API_KEY` | Internal Integration Token from Notion |
-| `NOTION_DATABASE_ID` | ID of your Notion Database |
+| `TELEGRAM_BOT_TOKEN` | Your bot token from Telegram. |
+| `GROQ_API_KEY` | API key for the LLM provider. |
+| `STABILITY_API_KEY` | API key for image generation. |
+| `NOTION_API_KEY` | Internal Integration Token for Notion. |
+| `NOTION_DATABASE_ID` | ID of your Notion Database. |
 
-### 3. Run the Bot
+# 4. Running the Bot
+
+To run the bot locally:
+
 ```bash
 python main.py
 ```
 
-## Commands
+# Usage
 
-| Command | Description |
-| :--- | :--- |
-| `/start` | Initialize the bot and display the menu |
-| `/help` | Display help information |
-| `/models` | List active AI model details |
-| `/history` | Show recent conversation history |
-| `/clear` | Clear current conversation history |
-| `/cancel` | Cancel any active operation (e.g., book upload) |
-| `/stats` | View usage statistics and cost tracking |
+# Commands
 
-## Deployment
+- `/start` - Initialize the bot and view the main menu.
+- `/image <prompt>` - Generate an image based on a text prompt.
+- `/models` - View active model configurations.
+- `/history` - View recent conversation history.
+- `/clear` - Clear the current conversation memory.
+- `/stats` - View usage statistics and costs.
+
+# Interactions
+
+- **Chat:** Simply send a message to start a conversation. Long responses are paginated automatically.
+- **Uploading Books:**
+    1.  Upload a PDF file to the chat.
+    2.  The bot will extract the text and ask for the Title and Author.
+    3.  The metadata is saved to Notion, and the text is stored in memory.
+- **Querying Books:** Ask questions like *"What does [Book Name] say about [Topic]?"* or *"Find color sets involving red."* The bot will search the extracted text and answer based on the book's content.
+
+# Deployment
 
 This project is configured for deployment on **Render** as a **Background Worker**.
 
 1.  Connect your GitHub repository to Render.
 2.  Select **Background Worker** as the service type.
-3.  Set the **Start Command** to `python main.py`.
-4.  Add the environment variables listed in the Configuration section.
+3.  **Build Command:** `pip install -r requirements.txt`
+4.  **Start Command:** `python main.py`
+5.  **Environment Variables:** Add the variables listed in the Configuration section.
+6.  Deploy.
 
-## Usage Notes
+# Project Structure
 
-- **Notion Setup:** Ensure your Notion Database is connected to your integration and contains the required properties (Name, Author, Date Added, Status).
-- **Long Messages:** Responses exceeding the character limit are handled via inline buttons for seamless reading.
-- **Book Upload:** Simply upload a PDF file to the chat to trigger the saving workflow.
+The project is modular, separating concerns for easier maintenance.
 
-## License
+```text
+.
+├── main.py              # Application entry point and bot logic.
+├── config.py            # Configuration and environment variable loading.
+├── llm_router.py        # Handles API communication with the LLM.
+├── notion_handler.py     # Manages Notion database interactions.
+├── image_handler.py     # Manages image generation API requests.
+├── requirements.txt     # Project dependencies.
+└── README.md            # This file.
+```
+
+# License
 
 This project is for personal use.
 ```
