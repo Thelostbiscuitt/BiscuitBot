@@ -154,7 +154,7 @@ class TelegramBot:
             "• `/cancel` - Stop any ongoing process (like a book upload).\n\n"
             "**Chatting:**\n"
             "Just send a text message to chat.\n\n"
-            "**Notion Integration:**\n"  # Fixed Quote here
+            "**Notion Integration:**\n"
             "Upload a PDF to save a book.\n"
             "Ask about 'books' or 'notion' to retrieve your library list for analysis."
         )
@@ -344,7 +344,8 @@ class TelegramBot:
         # --- NEW: Notion Context Injection ---
         # If user mentions books/notion, fetch data and inject it
         if "book" in message_text.lower() or "notion" in message_text.lower() or "library" in message_text.lower():
-            books = self.notion.get_books()
+            # FIX: Added 'await' because get_books is now async
+            books = await self.notion.get_books()
             
             if books:
                 book_list = "\n".join([f"- {b['title']} by {b['author']}" for b in books])
