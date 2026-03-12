@@ -1,47 +1,39 @@
 import logging
 import httpx
-from io import BytesIO
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
 class ImageHandler:
     def __init__(self, api_key):
-        self.api_key = api_key
-        # Correct Hugging Face Router URL with hf-inference dispatcher
-        self.base_url = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0"
+        # Pollinations.ai requires NO API KEY.
+        # We accept the key in __init__ to keep the code compatible, but we ignore it.
+        self.api_key = api_key 
         
     async def generate_image(self, prompt: str):
         """
-        Generates an image using Hugging Face Router API.
+        Generates an image using Pollinations.ai (Free, No Key Required).
         Returns: (Success: bool, Data: bytes_or_error_message)
         """
-        if not self.api_key:
-            return False, "Hugging Face API Key not configured."
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "inputs": prompt
-        }
-
         try:
+            # URL Encode the prompt to handle spaces and special characters
+            safe_prompt = urllib.parse.quote(prompt)
+            
+            # Pollinations URL
+            # nologo=true removes the watermark
+            url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true&seed={int(httpx.utils.now().timestamp())}"
+            
+            logger.info(f"Pollinations URL: {url}")
+
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(self.base_url, headers=headers, json=payload)
+                # Pollinations returns the image bytes directly on GET
+                response = await client.get(url)
                 
-                logger.info(f"HF Router Status Code: {response.status_code}")
-                
-                if response.status_code != 200:
-                    # FIX: Changed to 'await response.text()'
-                    error_text = await response.text()
-                    return False, f"API Error {response.status_code}: {error_text[:200]}"
-                
-                # Read the image bytes
-                image_bytes = await response.read()
-                
-                return True, image_bytes
+                if response.status_code == 200:
+                    # Return the image bytes
+                    return True, response.content
+                else:
+                    return False, f"Pollinations Error {response.status_code}"
 
         except Exception as e:
             logger.error(f"Exception during image generation: {e}")
