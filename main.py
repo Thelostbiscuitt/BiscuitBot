@@ -327,3 +327,133 @@ class TelegramBot:
             response = await self.router.get_response(
                 user_id=user_id,
                 message=message_text,
+                conversation_history=self.conversations[user_id],
+                user_name=user_name
+            )
+            
+            formatted_response = self._format_response(response)
+            
+            self.conversations[user_id].append({"role": "assistant", "content": formatted_response})
+            if len(self.conversations[user_id]) > 20:
+                self.conversations[user_id] = self.conversations[user_id][-20:]
+
+            chunks = self._split_text(formatted_response)
+            
+            if len(chunks) == 1:
+                try:
+                    await update.message.reply_text(chunks[0], parse_mode='Markdown')
+                except BadRequest:
+                    await update.message.reply_text(chunks[0])
+            else:
+                self.paginated_messages[user_id] = {
+                    'chunks': chunks,
+                    'page': 0
+                }
+                
+                keyboard = [[InlineKeyboardButton("Read More > (1/{})".format(len(chunks)), callback_data=f"next_{user_id}_1")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                try:
+                    await update.message.reply_text(chunks[0], parse_mode='Markdown', reply_markup=reply_markup)
+                except BadRequest:
+                    await update.message.reply_text(chunks[0], reply_markup=reply_markup)
+
+        except Exception as e:
+            logger.error(f"Error handling message: {e}", exc_info=True)
+            await update.message.reply_text("❌ Sorry, something went wrong.")
+
+    async def pagination_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle pagination clicks"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        
+        try:
+            action, uid_str, page_str = query.data.split('_')
+            target_user_id = int(uid_str)
+            target_page = int(page_str)
+        except ValueError:
+            return
+
+        if user_id != target_user_id:
+            return
+
+        if user_id not in self.paginated_messages:
+            await query.edit_message_text("This message has expired.")
+            return
+
+        data = self.paginated_messages[user_id]
+        chunks = data['chunks']
+        total_pages = len(chunks)
+        data['page'] = target_page
+        
+        keyboard = []
+        buttons = []
+        
+        if target_page > 0:
+            buttons.append(InlineKeyboardButton("< Prev", callback_data=f"prev_{user_id}_{target_page - 1}"))
+        
+        if target_page < total_pages - 1:
+            buttons.append(InlineKeyboardButton(f"Next > ({target_page + 1}/{total_pages})", callback_data=f"next_{user_id}_{target_page + 1}"))
+        else:
+            if total_pages > 1:
+                 buttons.append(InlineKeyboardButton("<< Start", callback_data=f"prev_{user_id}_0"))
+        
+        if buttons:
+            keyboard.append(buttons)
+            
+        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+        
+        try:
+            await query.edit_message_text(
+                text=chunks[target_page],
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        except BadRequest:
+            try:
+                await query.edit_message_text(
+                    text=chunks[target_page],
+                    reply_markup=reply_markup
+                )
+            except Exception as e:
+                logger.error(f"Error editing message: {e}")
+
+    def run(self):
+        """Start the bot"""
+        logger.info("Starting bot with Full Command Support + Notion + Pagination...")
+        
+        application = Application.builder().token(self.config.telegram_token).build()
+        
+        # Book Upload Conversation Handler
+        book_conv_handler = ConversationHandler(
+            entry_points=[MessageHandler(filters.Document.PDF, self.handle_document)],
+            states={
+                WAITING_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.book_title_received)],
+                WAITING_AUTHOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.book_author_received)],
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel_command)],
+        )
+        
+        # Register Handlers
+        application.add_handler(book_conv_handler)
+        
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("models", self.models_command))
+        application.add_handler(CommandHandler("history", self.history_command))
+        application.add_handler(CommandHandler("clear", self.clear_command))
+        application.add_handler(CommandHandler("cancel", self.cancel_command))
+        application.add_handler(CommandHandler("stats", self.stats_command))
+        
+        application.add_handler(CallbackQueryHandler(self.pagination_callback, pattern="^(next|prev)_"))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        
+        logger.info("Bot is running...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    bot = TelegramBot()
+    bot.run()
