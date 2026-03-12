@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Production-Ready Telegram Bot with Groq Llama 3.3 + Notion Integration
-Features: Pagination, Notion Book Upload, and Full Command Support.
+Production-Ready Telegram Bot with Groq Llama 3.3 + Notion + Z.AI Image Gen
+Features: Pagination, Notion Book Upload, Image Generation, Full Command Support.
 """
 
 import os
@@ -24,6 +24,7 @@ from telegram.ext import (
 from llm_router import LLMRouter
 from config import Config
 from notion_handler import NotionHandler
+from image_handler import ImageHandler # <--- NEW IMPORT
 
 # Configure logging
 logging.basicConfig(
@@ -37,7 +38,7 @@ WAITING_TITLE = 1
 WAITING_AUTHOR = 2
 
 class TelegramBot:
-    """Main Telegram Bot class with LLM, Pagination, and Notion"""
+    """Main Telegram Bot class with LLM, Pagination, Notion, and Image Gen"""
     
     def __init__(self):
         self.config = Config()
@@ -45,6 +46,9 @@ class TelegramBot:
         
         # Initialize Notion Handler
         self.notion = NotionHandler(self.config.notion_api_key, self.config.notion_database_id)
+        
+        # Initialize Image Handler (Z.AI)
+        self.image_handler = ImageHandler(self.config.zai_api_key) # <--- NEW INITIALIZATION
         
         self.conversations: Dict[int, List[Dict]] = {}
         self.paginated_messages: Dict[int, Dict] = {}
@@ -125,6 +129,7 @@ class TelegramBot:
             "**Available Commands:**\n"
             "`/start` - Initialize bot\n"
             "`/help` - Display help\n"
+            "`/image <prompt>` - Generate an image\n"
             "`/models` - List active model\n"
             "`/history` - Show conversation history\n"
             "`/clear` - Clear history\n"
@@ -140,6 +145,7 @@ class TelegramBot:
         help_text = (
             "📚 **Help Guide**\n\n"
             "**Commands:**\n"
+            "• `/image <prompt>` - Generate an AI image using Z.AI.\n"
             "• `/start` - Restart the session and see the menu.\n"
             "• `/models` - Check which AI model is currently active.\n"
             "• `/history` - View a summary of your recent chat.\n"
@@ -152,15 +158,44 @@ class TelegramBot:
         )
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
+    async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Generate an image based on text prompt"""
+        if not self.config.zai_api_key:
+            await update.message.reply_text("⚠️ Image generation is not configured (Missing API Key).")
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "Please provide a prompt.\n\n"
+                "Usage: `/image A futuristic city at sunset`",
+                parse_mode='Markdown'
+            )
+            return
+        
+        prompt = " ".join(context.args)
+        
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
+        await update.message.reply_text(f"🎨 Generating image for: *{prompt}*...", parse_mode='Markdown')
+        
+        image_url = await self.image_handler.generate_image(prompt)
+        
+        if image_url:
+            try:
+                await update.message.reply_photo(photo=image_url, caption=f"✨ {prompt}")
+            except Exception as e:
+                logger.error(f"Failed to send photo: {e}")
+                await update.message.reply_text("Image generated, but failed to send. Here is the link:\n" + image_url)
+        else:
+            await update.message.reply_text("❌ Failed to generate image. The service might be busy or the prompt was blocked.")
+
     async def models_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """List models"""
         model_info = (
             "🤖 **Active Model Configuration**\n\n"
-            "• **Name:** Llama 3.3 70B Versatile\n"
-            "• **Provider:** Groq\n"
-            "• **Context Window:** 128,000 Tokens\n"
-            "• **Max Output:** ~8,192 Tokens\n\n"
-            "This model is optimized for high speed and complex reasoning."
+            "• **LLM Name:** Llama 3.3 70B Versatile\n"
+            "• **LLM Provider:** Groq\n"
+            "• **Image Gen:** Z.AI (Flux-v1.1-pro)\n\n"
+            "Optimized for high speed and complex reasoning."
         )
         await update.message.reply_text(model_info, parse_mode='Markdown')
 
@@ -173,22 +208,15 @@ class TelegramBot:
             await update.message.reply_text("No conversation history found.")
             return
         
-        # Show last 5 messages to avoid overflow
         recent_history = history[-10:]
-        
         output = "🗂 **Recent History** (Last 10 messages):\n\n"
         
         for i, msg in enumerate(recent_history):
             role = msg['role'].upper()
             content = msg['content']
-            
-            # Truncate long content for the display
             display_content = content[:100] + "..." if len(content) > 100 else content
-            
-            # Simple formatting for history log
             output += f"*{role}:* {display_content}\n\n"
         
-        # Send with pagination if it's too long
         chunks = self._split_text(output)
         for chunk in chunks:
             await update.message.reply_text(chunk, parse_mode='Markdown')
@@ -199,8 +227,6 @@ class TelegramBot:
         
         if user_id in self.conversations:
             del self.conversations[user_id]
-        
-        # Also clear pagination state
         if user_id in self.paginated_messages:
             del self.paginated_messages[user_id]
             
@@ -219,7 +245,7 @@ class TelegramBot:
         return ConversationHandler.END
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show usage statistics (Legacy command, kept for utility)"""
+        """Show usage statistics"""
         stats = self.router.get_stats()
         user_id = update.effective_user.id
         conversation_length = len(self.conversations.get(user_id, []))
@@ -240,12 +266,10 @@ class TelegramBot:
         user_id = update.effective_user.id
         document: Document = update.message.document
         
-        # Check if Notion is configured
         if not self.notion.client:
             await update.message.reply_text("⚠️ Notion is not configured. I cannot save books.")
             return
 
-        # Store file info
         self.book_upload_state[user_id] = {
             'file_name': document.file_name,
             'file_id': document.file_id
@@ -284,10 +308,7 @@ class TelegramBot:
         if user_id not in self.book_upload_state:
             return ConversationHandler.END
         
-        # Get data
         title = self.book_upload_state[user_id].get('title', 'Unknown')
-        
-        # Save to Notion
         success = self.notion.add_book(title, author)
         
         if success:
@@ -300,7 +321,6 @@ class TelegramBot:
         else:
             await update.message.reply_text("❌ Failed to save to Notion. Check logs.")
         
-        # Cleanup
         del self.book_upload_state[user_id]
         return ConversationHandler.END
 
@@ -422,7 +442,7 @@ class TelegramBot:
 
     def run(self):
         """Start the bot"""
-        logger.info("Starting bot with Full Command Support + Notion + Pagination...")
+        logger.info("Starting bot with LLM, Notion, and Image Generation...")
         
         application = Application.builder().token(self.config.telegram_token).build()
         
@@ -441,6 +461,7 @@ class TelegramBot:
         
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("image", self.image_command)) # <--- NEW
         application.add_handler(CommandHandler("models", self.models_command))
         application.add_handler(CommandHandler("history", self.history_command))
         application.add_handler(CommandHandler("clear", self.clear_command))
