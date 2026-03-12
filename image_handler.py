@@ -20,12 +20,9 @@ class ImageHandler:
         headers = {
             "authorization": f"Bearer {self.api_key}",
             "accept": "image/*"
-            # Note: We do NOT set 'content-type' here. 
-            # httpx will automatically set it to 'multipart/form-data' because we use the 'files' parameter.
         }
 
-        # We use the 'files' parameter to force httpx to use 'multipart/form-data' encoding.
-        # (None is used for the filename since we are sending text fields, not actual files).
+        # Use 'files' to force multipart/form-data encoding
         files = {
             "prompt": (None, prompt),
             "output_format": (None, "jpeg")
@@ -38,8 +35,9 @@ class ImageHandler:
                 logger.info(f"Stability AI Status: {response.status_code}")
 
                 if response.status_code != 200:
-                    # .text is a property in httpx, not a method
-                    error_text = response.text
+                    # FIX: Manually decode bytes to string to avoid async/text property issues
+                    error_bytes = response.content
+                    error_text = error_bytes.decode("utf-8")
                     return False, f"Stability AI Error {response.status_code}: {error_text}"
                 
                 # Read the image bytes
