@@ -1,93 +1,76 @@
 
-# Biscuit AI Assistant
+# Biscuit AI Assistant & Library Manager
 
-A production-ready Telegram bot powered by Groq's Llama 3.3 70B Versatile model. This bot features conversation memory, cost tracking, and Markdown-formatted responses.
-
-![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
-![Telegram](https://img.shields.io/badge/Telegram-Bot-26A5E4?logo=telegram)
+A production-ready Telegram bot powered by Llama 3.3 (via Groq) with integrated Notion library management. Features intelligent conversation handling, smart message pagination, and automated book tracking.
 
 ## Features
 
-- **Intelligent Conversations:** Powered by Llama 3.3 70B via Groq for fast, low-latency responses.
-- **Conversation Memory:** Remembers context within a session (up to 20 messages).
-- **Usage Tracking:** Monitor token usage and estimated costs via `/stats`.
-- **Rich Formatting:** Supports Markdown for code blocks, lists, and bold text.
-- **Access Control:** Optional restriction to specific user IDs.
+- **AI Chat:** Interact with Llama 3.3 70B for advanced reasoning and coding assistance.
+- **Smart Pagination:** Automatically splits long responses into navigable sections to avoid character limits.
+- **Notion Integration:** Upload books directly to chat to automatically save metadata to your Notion library.
+- **Conversation Memory:** Maintains context during sessions.
+- **Modular Architecture:** Clean separation of concerns (API, Logic, Configuration).
 
-## Project Structure
+## Tech Stack
 
-The project is organized into modular components for easy maintenance and deployment.
+- **Runtime:** Python 3.9+
+- **Bot Framework:** `python-telegram-bot`
+- **AI Model:** Groq API (Llama 3.3)
+- **Integration:** Notion API
+- **Deployment:** Render (Background Worker)
 
-```text
-.
-├── main.py              # Entry point: Telegram bot handlers and polling logic.
-├── config.py            # Configuration: Loads environment variables and settings.
-├── llm_router.py        # API Layer: Handles communication with the Groq API.
-├── requirements.txt     # Dependencies: List of required Python packages.
-└── README.md            # This file.
+## Quick Start
+
+### 1. Clone and Install
+```bash
+git clone https://github.com/your-username/your-repo.git
+cd your-repo
+pip install -r requirements.txt
 ```
 
-## Setup & Deployment
+### 2. Configuration
+Rename `.env.example` to `.env` and configure your environment variables.
 
-### Prerequisites
+| Variable Name | Description |
+| :--- | :--- |
+| `TELEGRAM_BOT_TOKEN` | Your bot token from @BotFather |
+| `GROQ_API_KEY` | API key for Groq services |
+| `NOTION_API_KEY` | Internal Integration Token from Notion |
+| `NOTION_DATABASE_ID` | ID of your Notion Database |
 
-- Python 3.9+
-- A Telegram Bot Token (obtain via [@BotFather](https://t.me/BotFather))
-- A Groq API Key (obtain via [Groq Console](https://console.groq.com/))
-
-### Environment Variables
-
-The bot relies on the following environment variables. Ensure these are configured in your deployment platform (e.g., Render, Railway) or a local `.env` file.
-
-| Variable Name | Description | Required |
-| :--- | :--- | :--- |
-| `TELEGRAM_BOT_TOKEN` | The API token for your Telegram bot. | Yes |
-| `GROQ_API_KEY` | The API key for accessing Groq services. | Yes |
-| `AUTHORIZED_USERS` | Comma-separated list of Telegram User IDs allowed to use the bot (Leave empty for public access). | No |
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/your-username/your-repo.git
-   cd your-repo
-   ```
-
-2. **Install Dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configure Environment**
-   Create a `.env` file locally (or set variables in your hosting dashboard):
-   ```env
-   TELEGRAM_BOT_TOKEN=your_token_here
-   GROQ_API_KEY=your_groq_key_here
-   ```
-
-4. **Run the Bot**
-   ```bash
-   python main.py
-   ```
-
-## Deployment on Render
-
-This project is configured for **Render** as a Background Worker.
-
-1.  Create a new **Background Worker** on Render.
-2.  Connect your GitHub repository.
-3.  **Build Command:** `pip install -r requirements.txt`
-4.  **Start Command:** `python main.py`
-5.  Add the environment variables listed above in the Render Dashboard.
+### 3. Run the Bot
+```bash
+python main.py
+```
 
 ## Commands
 
-- `/start` - Initialize the bot and view the welcome menu.
-- `/help` - View help information and capabilities.
-- `/clear` - Clear your current conversation history.
-- `/stats` - View your usage statistics (token count and cost).
+| Command | Description |
+| :--- | :--- |
+| `/start` | Initialize the bot and display the menu |
+| `/help` | Display help information |
+| `/models` | List active AI model details |
+| `/history` | Show recent conversation history |
+| `/clear` | Clear current conversation history |
+| `/cancel` | Cancel any active operation (e.g., book upload) |
+| `/stats` | View usage statistics and cost tracking |
+
+## Deployment
+
+This project is configured for deployment on **Render** as a **Background Worker**.
+
+1.  Connect your GitHub repository to Render.
+2.  Select **Background Worker** as the service type.
+3.  Set the **Start Command** to `python main.py`.
+4.  Add the environment variables listed in the Configuration section.
+
+## Usage Notes
+
+- **Notion Setup:** Ensure your Notion Database is connected to your integration and contains the required properties (Name, Author, Date Added, Status).
+- **Long Messages:** Responses exceeding the character limit are handled via inline buttons for seamless reading.
+- **Book Upload:** Simply upload a PDF file to the chat to trigger the saving workflow.
 
 ## License
 
-This project is for personal/educational use.
+This project is for personal use.
 ```
