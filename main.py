@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Production-Ready Telegram Bot with Groq Llama 3.3 API Integration
-Features Interactive Pagination for long responses.
+Production-Ready Telegram Bot with Groq Llama 3.3 + Notion Integration
 """
 
 import os
@@ -10,7 +9,7 @@ import json
 import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Document
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
@@ -18,10 +17,12 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     filters,
-    ContextTypes
+    ContextTypes,
+    ConversationHandler
 )
 from llm_router import LLMRouter
 from config import Config
+from notion_handler import NotionHandler
 
 # Configure logging
 logging.basicConfig(
@@ -30,17 +31,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Conversation States for Book Upload
+WAITING_TITLE = 1
+WAITING_AUTHOR = 2
 
 class TelegramBot:
-    """Main Telegram Bot class with LLM integration and Pagination"""
+    """Main Telegram Bot class with LLM, Pagination, and Notion"""
     
     def __init__(self):
         self.config = Config()
         self.router = LLMRouter(self.config)
-        self.conversations: Dict[int, List[Dict]] = {}
         
-        # Store paginated messages: { user_id: { 'chunks': [], 'message_id': int, 'page': int } }
+        # Initialize Notion Handler
+        self.notion = NotionHandler(self.config.notion_api_key, self.config.notion_database_id)
+        
+        self.conversations: Dict[int, List[Dict]] = {}
         self.paginated_messages: Dict[int, Dict] = {}
+        
+        # State for uploading books: { user_id: { 'file_name': 'book.pdf' } }
+        self.book_upload_state: Dict[int, Dict] = {}
     
     def _format_response(self, response: str) -> str:
         """Post-process LLM response for formatting."""
@@ -72,21 +81,15 @@ class TelegramBot:
         return response
 
     def _split_text(self, text: str, limit: int = 3500) -> List[str]:
-        """
-        Splits text into chunks, trying to break at newlines.
-        We use 3500 instead of 4096 to leave room for the "Page X/Y" footer and buttons.
-        """
+        """Splits text into chunks."""
         if len(text) <= limit:
             return [text]
             
         chunks = []
         current_chunk = ""
-        
-        # Split by newlines first to preserve paragraphs
         paragraphs = text.split('\n')
         
         for paragraph in paragraphs:
-            # If adding this paragraph exceeds limit
             if len(current_chunk) + len(paragraph) + 1 > limit:
                 if current_chunk:
                     chunks.append(current_chunk.strip())
@@ -97,62 +100,47 @@ class TelegramBot:
         if current_chunk:
             chunks.append(current_chunk.strip())
             
-        # Fallback: If a single paragraph is HUGE, force split it
         final_chunks = []
         for chunk in chunks:
             while len(chunk) > limit:
                 split_point = chunk.rfind(' ', 0, limit)
-                if split_point == -1: split_point = limit # No space found, force cut
+                if split_point == -1: split_point = limit
                 final_chunks.append(chunk[:split_point])
                 chunk = chunk[split_point:].lstrip()
             final_chunks.append(chunk)
             
         return final_chunks
-        
+
+    # --- COMMANDS ---
+
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command"""
         user = update.effective_user
-        logger.info(f"User {user.id} started the bot")
-        user_name = user.first_name if user.first_name else (user.username if user.username else "there")
+        user_name = user.first_name if user.first_name else "there"
         
         welcome_message = (
             f"👋 Hello {user_name}!\n\n"
-            "Biscuit is online and ready to assist.\n\n"
-            "Features:\n"
-            "• Smart Pagination for long messages\n"
-            "• Conversation memory\n"
-            "• Llama 3.3 Powered\n\n"
+            "I can chat with you and save books to your Notion library.\n\n"
+            "• **Chat:** Just send a message.\n"
+            "• **Save Book:** Upload a PDF file to start the process.\n\n"
             "Commands:\n"
             "`/start` - Show menu\n"
             "`/clear` - Clear history\n"
             "`/stats` - View stats\n"
-            "`/help` - Get help"
+            "`/cancel` - Cancel book upload"
         )
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
     
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command"""
-        help_text = (
-            "🤖 *Bot Help*\n\n"
-            "I use **Pagination** for long responses.\n"
-            "If a response is long, you will see a **Read More >** button.\n"
-            "Click it to expand the message without cluttering the chat!"
-        )
-        await update.message.reply_text(help_text, parse_mode='Markdown')
-    
-    async def clear_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Clear conversation history"""
+    async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Cancel the current book upload conversation."""
         user_id = update.effective_user.id
-        if user_id in self.conversations:
-            del self.conversations[user_id]
-            if user_id in self.paginated_messages:
-                del self.paginated_messages[user_id]
-            await update.message.reply_text("✅ History cleared.")
+        if user_id in self.book_upload_state:
+            del self.book_upload_state[user_id]
+            await update.message.reply_text("❌ Book upload cancelled.")
         else:
-            await update.message.reply_text("No history to clear.")
-    
+            await update.message.reply_text("No active upload to cancel.")
+        return ConversationHandler.END
+
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show usage statistics"""
         stats = self.router.get_stats()
         user_id = update.effective_user.id
         conversation_length = len(self.conversations.get(user_id, []))
@@ -165,9 +153,82 @@ class TelegramBot:
             f"Conv Length: {conversation_length} msgs"
         )
         await update.message.reply_text(stats_message, parse_mode='Markdown')
-    
+
+    # --- BOOK UPLOAD LOGIC ---
+
+    async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle PDF upload - Step 1: Ask for Title"""
+        user_id = update.effective_user.id
+        document: Document = update.message.document
+        
+        # Check if Notion is configured
+        if not self.notion.client:
+            await update.message.reply_text("⚠️ Notion is not configured. I cannot save books.")
+            return
+
+        # Store file info
+        self.book_upload_state[user_id] = {
+            'file_name': document.file_name,
+            'file_id': document.file_id
+        }
+        
+        await update.message.reply_text(
+            f"📚 I received `{document.file_name}`.\n\n"
+            "What is the **Title** of this book?",
+            parse_mode='Markdown'
+        )
+        return WAITING_TITLE
+
+    async def book_title_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Step 2: Receive Title, Ask for Author"""
+        user_id = update.effective_user.id
+        title = update.message.text
+        
+        if user_id not in self.book_upload_state:
+            await update.message.reply_text("Something went wrong. Please upload the file again.")
+            return ConversationHandler.END
+        
+        self.book_upload_state[user_id]['title'] = title
+        
+        await update.message.reply_text(
+            f"Got it! Title: *{title}*\n\n"
+            "Who is the **Author**?",
+            parse_mode='Markdown'
+        )
+        return WAITING_AUTHOR
+
+    async def book_author_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Step 3: Receive Author, Save to Notion"""
+        user_id = update.effective_user.id
+        author = update.message.text
+        
+        if user_id not in self.book_upload_state:
+            return ConversationHandler.END
+        
+        # Get data
+        title = self.book_upload_state[user_id].get('title', 'Unknown')
+        
+        # Save to Notion
+        success = self.notion.add_book(title, author)
+        
+        if success:
+            await update.message.reply_text(
+                f"✅ **Saved to Notion!**\n\n"
+                f"📖 *{title}*\n"
+                f"✍️ by {author}",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text("❌ Failed to save to Notion. Check logs.")
+        
+        # Cleanup
+        del self.book_upload_state[user_id]
+        return ConversationHandler.END
+
+    # --- CHAT LOGIC ---
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle regular text messages"""
+        """Handle regular text messages (Chat)"""
         user = update.effective_user
         user_id = user.id
         message_text = update.message.text
@@ -193,44 +254,37 @@ class TelegramBot:
             
             formatted_response = self._format_response(response)
             
-            # SAVE TO HISTORY
             self.conversations[user_id].append({"role": "assistant", "content": formatted_response})
             if len(self.conversations[user_id]) > 20:
                 self.conversations[user_id] = self.conversations[user_id][-20:]
 
-            # --- PAGINATION LOGIC ---
             chunks = self._split_text(formatted_response)
             
             if len(chunks) == 1:
-                # Single message: Try Markdown
                 try:
                     await update.message.reply_text(chunks[0], parse_mode='Markdown')
                 except BadRequest:
                     await update.message.reply_text(chunks[0])
-            
             else:
-                # Multiple chunks: START PAGINATION
                 self.paginated_messages[user_id] = {
                     'chunks': chunks,
                     'page': 0
                 }
                 
-                # Create Button
-                # Simplified text to avoid parsing issues
-                btn_text = f"Read More (1/{len(chunks)})"
-                keyboard = [[InlineKeyboardButton(btn_text, callback_data=f"next_{user_id}_1")]]
+                keyboard = [[InlineKeyboardButton("Read More > (1/{})".format(len(chunks)), callback_data=f"next_{user_id}_1")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                # SEND FIRST CHUNK AS PLAIN TEXT to guarantee button appears
-                # Formatting will be applied when user clicks "Read More"
-                await update.message.reply_text(chunks[0], reply_markup=reply_markup)
+                try:
+                    await update.message.reply_text(chunks[0], parse_mode='Markdown', reply_markup=reply_markup)
+                except BadRequest:
+                    await update.message.reply_text(chunks[0], reply_markup=reply_markup)
 
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
             await update.message.reply_text("❌ Sorry, something went wrong.")
 
     async def pagination_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button clicks for pagination (Next/Prev)"""
+        """Handle pagination clicks"""
         query = update.callback_query
         await query.answer()
         
@@ -241,9 +295,8 @@ class TelegramBot:
             target_user_id = int(uid_str)
             target_page = int(page_str)
         except ValueError:
-            logger.error(f"Invalid callback data: {query.data}")
             return
-        
+
         if user_id != target_user_id:
             return
 
@@ -254,10 +307,8 @@ class TelegramBot:
         data = self.paginated_messages[user_id]
         chunks = data['chunks']
         total_pages = len(chunks)
-        
         data['page'] = target_page
         
-        # Prepare buttons
         keyboard = []
         buttons = []
         
@@ -265,7 +316,7 @@ class TelegramBot:
             buttons.append(InlineKeyboardButton("< Prev", callback_data=f"prev_{user_id}_{target_page - 1}"))
         
         if target_page < total_pages - 1:
-            buttons.append(InlineKeyboardButton(f"Next ({target_page + 1}/{total_pages})", callback_data=f"next_{user_id}_{target_page + 1}"))
+            buttons.append(InlineKeyboardButton(f"Next > ({target_page + 1}/{total_pages})", callback_data=f"next_{user_id}_{target_page + 1}"))
         else:
             if total_pages > 1:
                  buttons.append(InlineKeyboardButton("<< Start", callback_data=f"prev_{user_id}_0"))
@@ -275,7 +326,6 @@ class TelegramBot:
             
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
         
-        # Try to edit with Markdown, fallback to plain text
         try:
             await query.edit_message_text(
                 text=chunks[target_page],
@@ -289,21 +339,29 @@ class TelegramBot:
                     reply_markup=reply_markup
                 )
             except Exception as e:
-                logger.error(f"Error editing message (fallback failed): {e}")
+                logger.error(f"Error editing message: {e}")
 
     def run(self):
         """Start the bot"""
-        logger.info("Starting Telegram bot with Pagination...")
+        logger.info("Starting bot with Notion Integration...")
         
         application = Application.builder().token(self.config.telegram_token).build()
         
+        # Book Upload Conversation Handler
+        book_conv_handler = ConversationHandler(
+            entry_points=[MessageHandler(filters.Document.PDF, self.handle_document)],
+            states={
+                WAITING_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.book_title_received)],
+                WAITING_AUTHOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.book_author_received)],
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel_command)],
+        )
+        
+        application.add_handler(book_conv_handler)
         application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("help", self.help_command))
-        application.add_handler(CommandHandler("clear", self.clear_command))
+        application.add_handler(CommandHandler("cancel", self.cancel_command))
         application.add_handler(CommandHandler("stats", self.stats_command))
-        
         application.add_handler(CallbackQueryHandler(self.pagination_callback, pattern="^(next|prev)_"))
-        
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
         logger.info("Bot is running...")
