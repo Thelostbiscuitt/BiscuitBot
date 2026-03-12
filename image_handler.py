@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 class ImageHandler:
     def __init__(self, api_key):
         self.api_key = api_key
-        # UPDATED: Added '/hf-inference/' to the path for the new Router
+        # Correct Hugging Face Router URL with hf-inference dispatcher
         self.base_url = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0"
         
     async def generate_image(self, prompt: str):
@@ -34,10 +34,11 @@ class ImageHandler:
                 logger.info(f"HF Router Status Code: {response.status_code}")
                 
                 if response.status_code != 200:
-                    error_text = response.text
+                    # FIX: Changed to 'await response.text()'
+                    error_text = await response.text()
                     return False, f"API Error {response.status_code}: {error_text[:200]}"
                 
-                # Hugging Face returns the image bytes directly
+                # Read the image bytes
                 image_bytes = await response.read()
                 
                 return True, image_bytes
