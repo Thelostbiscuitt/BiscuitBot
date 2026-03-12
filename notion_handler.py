@@ -66,7 +66,12 @@ class NotionHandler:
             return []
 
         try:
+            logger.info(f"Querying Notion Database ID: {self.database_id}")
             response = self.client.databases.query(database_id=self.database_id)
+            
+            # Log the raw response status
+            logger.info(f"Notion Query Status Code: {response.get('status', 'Unknown')}")
+            
             books = []
             
             for result in response.get("results", []):
@@ -94,5 +99,6 @@ class NotionHandler:
             return books
 
         except Exception as e:
+            # This will catch permission errors (like 403 Forbidden)
             logger.error(f"Failed to retrieve books from Notion: {e}")
             return []
