@@ -20,23 +20,25 @@ class ImageHandler:
         headers = {
             "authorization": f"Bearer {self.api_key}",
             "accept": "image/*"
+            # Note: We do NOT set 'content-type' here. 
+            # httpx will automatically set it to 'multipart/form-data' because we use the 'files' parameter.
         }
 
-        # Form data for the API
-        data = {
-            "prompt": prompt,
-            "output_format": "jpeg"
+        # We use the 'files' parameter to force httpx to use 'multipart/form-data' encoding.
+        # (None is used for the filename since we are sending text fields, not actual files).
+        files = {
+            "prompt": (None, prompt),
+            "output_format": (None, "jpeg")
         }
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(self.url, headers=headers, data=data)
+                response = await client.post(self.url, headers=headers, files=files)
                 
                 logger.info(f"Stability AI Status: {response.status_code}")
 
                 if response.status_code != 200:
-                    # FIX: Changed 'await response.text()' to 'response.text'
-                    # httpx uses .text as a property, not a method
+                    # .text is a property in httpx, not a method
                     error_text = response.text
                     return False, f"Stability AI Error {response.status_code}: {error_text}"
                 
