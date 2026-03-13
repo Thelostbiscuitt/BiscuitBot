@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Production-Ready Telegram Bot with Groq Llama 3.3 + Notion + Image Gen + PDF Text Extraction
-Features: Pagination, Notion Book Upload/Retrieve, Image Generation, Full Command Support, PDF Reading, Smart Search.
+Production-Ready Telegram Bot with GLM-4.7 + Notion + Image Gen
+Features: Pagination, Notion Book Upload/Retrieve, Image Generation, Full Command Support.
 """
 
 import os
 import logging
 import json
 import asyncio
-import fitz  # PyMuPDF for reading PDF text
 from datetime import datetime
 from typing import Dict, List, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Document
@@ -39,7 +38,7 @@ WAITING_TITLE = 1
 WAITING_AUTHOR = 2
 
 class TelegramBot:
-    """Main Telegram Bot class with LLM, Pagination, Notion, Image Gen, and PDF Reading"""
+    """Main Telegram Bot class with LLM, Pagination, Notion, and Image Gen"""
     
     def __init__(self):
         self.config = Config()
@@ -53,11 +52,9 @@ class TelegramBot:
         
         self.conversations: Dict[int, List[Dict]] = {}
         self.paginated_messages: Dict[int, Dict] = {}
-        self.book_upload_state: Dict[int, Dict] = {}
         
-        # NEW: Store extracted book text in memory for RAG (Reading)
-        # Structure: { "Book Title": "Full extracted text..." }
-        self.book_library_content: Dict[str, str] = {}
+        # State for uploading books: { user_id: { 'file_name': 'book.pdf' } }
+        self.book_upload_state: Dict[int, Dict] = {}
     
     def _format_response(self, response: str) -> str:
         """Post-process LLM response for formatting."""
@@ -128,19 +125,20 @@ class TelegramBot:
         
         welcome_message = (
             f"👋 Hello {user_name}!\n\n"
-            "I am **Biscuit**, your AI assistant.\n\n"
+            "I am **Biscuit**, your AI assistant powered by GLM-4.7.\n\n"
             "**Available Commands:**\n"
-            "`/start` - Initialize bot\n"
-            "`/help` - Display help\n"
-            "`/image <prompt>` - Generate an image\n"
-            "`/models` - List active model\n"
-            "`/history` - Show conversation history\n"
-            "`/clear` - Clear history\n"
-            "`/cancel` - Cancel any operation\n\n"
+            "`/start` - Initialize the bot and view the main menu\n"
+            "`/help` - Display the help guide\n"
+            "`/image <prompt>` - Generate an image based on a text prompt\n"
+            "`/models` - View the active AI model configuration\n"
+            "`/history` - View recent conversation history\n"
+            "`/clear` - Clear the current conversation memory\n"
+            "`/cancel` - Cancel any ongoing operation (e.g., book upload)\n"
+            "`/stats` - View usage statistics and costs\n\n"
             "**Features:**\n"
-            "• Upload PDFs (I will read them!)\n"
-            "• Ask questions about book content\n"
-            "• Chat with Llama 3.3"
+            "• Upload PDFs to save to Notion\n"
+            "• Ask about books in your library to retrieve the list\n"
+            "• Web Search enabled for real-time answers"
         )
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
     
@@ -150,11 +148,19 @@ class TelegramBot:
             "📚 **Help Guide**\n\n"
             "**Commands:**\n"
             "• `/image <prompt>` - Generate an AI image.\n"
-            "• `/start` - Restart the session.\n"
-            "• `/clear` - Wipe your conversation memory.\n\n"
-            "**Reading Books:**\n"
-            "Upload a PDF. I will extract the text.\n"
-            "Ask: 'What does [Book Name] say about [Topic]?' or 'Find [Topic] in my books' and I will search the text for you."
+            "• `/start` - Restart the session and see the menu.\n"
+            "• `/models` - Check which AI model is currently active.\n"
+            "• `/history` - View a summary of your recent chat.\n"
+            "• `/clear` - Wipe your conversation memory.\n"
+            "• `/cancel` - Stop any ongoing process (like a book upload).\n"
+            "• `/stats` - View usage stats.\n\n"
+            "**Chatting:**\n"
+            "Just send a text message to chat.\n\n"
+            "**Notion Integration:**\n"
+            "Upload a PDF to save a book.\n"
+            "Ask about 'books' or 'notion' to retrieve your library list for analysis.\n\n"
+            "**Web Search:**\n"
+            "I can browse the internet to answer real-time questions."
         )
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -165,32 +171,40 @@ class TelegramBot:
             return
 
         if not context.args:
-            await update.message.reply_text("Please provide a prompt.\n\nUsage: `/image A futuristic city at sunset`", parse_mode='Markdown')
+            await update.message.reply_text(
+                "Please provide a prompt.\n\n"
+                "Usage: `/image A futuristic city at sunset`",
+                parse_mode='Markdown'
+            )
             return
         
         prompt = " ".join(context.args)
+        
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
         await update.message.reply_text(f"🎨 Generating image for: *{prompt}*...", parse_mode='Markdown')
         
+        # Handler returns (Success: bool, Result: bytes_or_error_message)
         success, result = await self.image_handler.generate_image(prompt)
         
         if success:
+            # result is the Image BYTES
             try:
                 await update.message.reply_photo(photo=result, caption=f"✨ {prompt}")
             except Exception as e:
                 logger.error(f"Failed to send photo: {e}")
                 await update.message.reply_text("Image generated, but failed to send.")
         else:
+            # result is the Error Message
             await update.message.reply_text(f"❌ Failed: {result}")
 
     async def models_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """List models"""
         model_info = (
             "🤖 **Active Model Configuration**\n\n"
-            "• **LLM Name:** Llama 3.3 70B Versatile\n"
-            "• **LLM Provider:** Groq\n"
-            "• **Image Gen:** Stability AI (SD3)\n\n"
-            "Optimized for high speed and complex reasoning."
+            "• **LLM Name:** GLM-4.7\n"
+            "• **Provider:** ZhipuAI (BigModel)\n"
+            "• **Image Gen:** Stability AI / Hugging Face\n\n"
+            "Optimized for high speed, web search, and complex reasoning."
         )
         await update.message.reply_text(model_info, parse_mode='Markdown')
 
@@ -248,58 +262,34 @@ class TelegramBot:
         stats_message = (
             "📊 *Usage Stats*\n\n"
             f"Requests: {stats.get('total_requests', 0)}\n"
-            f"LLM Calls: {stats.get('llm_calls', 0)}\n"
+            f"GLM Calls: {stats.get('glm_calls', 0)}\n"
             f"Cost: ${stats.get('total_cost', 0.0):.4f}\n\n"
             f"Current Conv Length: {conversation_length} msgs"
         )
         await update.message.reply_text(stats_message, parse_mode='Markdown')
 
-    # ================= BOOK UPLOAD LOGIC WITH TEXT EXTRACTION =================
+    # ================= BOOK UPLOAD LOGIC =================
 
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle PDF upload - Step 1: Download, Extract Text, Ask for Title"""
+        """Handle PDF upload - Step 1: Ask for Title"""
         user_id = update.effective_user.id
         document: Document = update.message.document
         
         if not self.notion.client:
-            await update.message.reply_text("⚠️ Notion is not configured.")
+            await update.message.reply_text("⚠️ Notion is not configured. I cannot save books.")
             return
 
-        try:
-            await update.message.reply_text(f"📄 Received `{document.file_name}`. Extracting text... please wait...", parse_mode='Markdown')
-            
-            # 1. Download the file
-            new_file = await document.get_file()
-            file_bytes = await new_file.download_as_bytearray()
-            
-            # 2. Extract Text using PyMuPDF (fitz)
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            extracted_text = ""
-            for page in doc:
-                extracted_text += page.get_text()
-            
-            doc.close()
-            
-            logger.info(f"Extracted {len(extracted_text)} characters from PDF.")
-            
-            # Store extracted text in memory
-            self.book_upload_state[user_id] = {
-                'file_name': document.file_name,
-                'file_id': document.file_id,
-                'extracted_text': extracted_text
-            }
-            
-            await update.message.reply_text(
-                f"✅ Text extracted ({len(extracted_text)} chars).\n\n"
-                "What is the **Title** of this book?",
-                parse_mode='Markdown'
-            )
-            return WAITING_TITLE
-
-        except Exception as e:
-            logger.error(f"Error processing PDF: {e}")
-            await update.message.reply_text("❌ Failed to read the PDF. It might be an image-based PDF (scanned).")
-            return
+        self.book_upload_state[user_id] = {
+            'file_name': document.file_name,
+            'file_id': document.file_id
+        }
+        
+        await update.message.reply_text(
+            f"📚 I received `{document.file_name}`.\n\n"
+            "What is the **Title** of this book?",
+            parse_mode='Markdown'
+        )
+        return WAITING_TITLE
 
     async def book_title_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Step 2: Receive Title, Ask for Author"""
@@ -320,7 +310,7 @@ class TelegramBot:
         return WAITING_AUTHOR
 
     async def book_author_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Step 3: Receive Author, Save to Notion, Store Text in Memory"""
+        """Step 3: Receive Author, Save to Notion"""
         user_id = update.effective_user.id
         author = update.message.text
         
@@ -328,20 +318,13 @@ class TelegramBot:
             return ConversationHandler.END
         
         title = self.book_upload_state[user_id].get('title', 'Unknown')
-        
-        # Save metadata to Notion
         success = self.notion.add_book(title, author)
         
         if success:
-            # IMPORTANT: Save the extracted text to the library so the bot can read it
-            extracted_text = self.book_upload_state[user_id]['extracted_text']
-            self.book_library_content[title] = extracted_text
-            
             await update.message.reply_text(
-                f"✅ **Saved to Notion and Added to Brain!**\n\n"
+                f"✅ **Saved to Notion!**\n\n"
                 f"📖 *{title}*\n"
-                f"✍️ by {author}\n\n"
-                f"You can now ask me questions about this book's content.",
+                f"✍️ by {author}",
                 parse_mode='Markdown'
             )
         else:
@@ -350,10 +333,10 @@ class TelegramBot:
         del self.book_upload_state[user_id]
         return ConversationHandler.END
 
-    # ================= CHAT LOGIC WITH SMART TEXT SEARCH =================
+    # ================= CHAT LOGIC =================
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle messages with Smart RAG (Keyword Search in Extracted Text)"""
+        """Handle regular text messages (Chat) with Notion Context Injection"""
         user = update.effective_user
         user_id = user.id
         message_text = update.message.text
@@ -362,70 +345,20 @@ class TelegramBot:
         
         user_name = user.first_name if user.first_name else (user.username if user.username else None)
         
-        # --- SMART BOOK SEARCH ---
-        relevant_snippet = ""
-        
-        # 1. Check if the user is asking about books generally
+        # --- NEW: Notion Context Injection ---
+        # If user mentions books/notion, fetch data and inject it
         if "book" in message_text.lower() or "notion" in message_text.lower() or "library" in message_text.lower():
+            books = self.notion.get_books()
             
-            # 2. Strategy: Check if a specific book is mentioned
-            specific_book_found = False
-            matched_book_title = ""
-            
-            for title in self.book_library_content.keys():
-                if title.lower() in message_text.lower() or message_text.lower() in title.lower():
-                    specific_book_found = True
-                    matched_book_title = title
-                    break
-            
-            # 3. If no specific book is mentioned, search ALL books for keywords
-            search_keywords = [w for w in message_text.split() if len(w) > 3]
-            best_snippet = ""
-            highest_score = 0
-
-            if not specific_book_found:
-                # Search across the entire library
-                for title, content in self.book_library_content.items():
-                    # Split content into paragraphs
-                    paragraphs = content.split('\n\n')
-                    for para in paragraphs:
-                        score = 0
-                        # Score based on keyword matches in this paragraph
-                        for word in search_keywords:
-                            if word.lower() in para.lower():
-                                score += 1
-                        
-                        # If this paragraph has keywords and is a good length, consider it
-                        if score > 0 and len(para) > 50 and len(para) < 1500:
-                            if score > highest_score:
-                                highest_score = score
-                                best_snippet = f"From the book '{title}':\n\n{para}"
-            else:
-                # Search specifically the matched book
-                content = self.book_library_content[matched_book_title]
-                paragraphs = content.split('\n\n')
-                for para in paragraphs:
-                    score = 0
-                    for word in search_keywords:
-                        if word.lower() in para.lower():
-                            score += 1
-                    if score > 0 and len(para) > 50 and len(para) < 1500:
-                        if score > highest_score:
-                            highest_score = score
-                            best_snippet = f"From the book '{matched_book_title}':\n\n{para}"
-
-            if best_snippet:
-                relevant_snippet = best_snippet
-
-        if relevant_snippet:
-            # Inject the found text into the prompt
-            message_text = (
-                f"Based on the following text from your books:\n\n"
-                f"{relevant_snippet}\n\n"
-                f"User Question: {message_text}\n\n"
-                f"Please answer the question using ONLY the provided text. If the answer is not there, say 'I couldn't find that specific detail in the book.'"
-            )
-        
+            if books:
+                book_list = "\n".join([f"- {b['title']} by {b['author']}" for b in books])
+                # Inject the book list into the message sent to AI
+                message_text = (
+                    f"Here is the list of books currently saved in the Notion Library:\n{book_list}\n\n"
+                    f"User Question: {message_text}\n\n"
+                    "Please answer the user's question based on these books."
+                )
+                logger.info("Notion data injected into conversation.")
         # ---------------------------------------
 
         if user_id not in self.conversations:
@@ -534,7 +467,7 @@ class TelegramBot:
 
     def run(self):
         """Start the bot"""
-        logger.info("Starting bot with LLM, Notion, Image Gen, and PDF Text Extraction (Smart Search)...")
+        logger.info("Starting bot with GLM-4.7, Notion (Read/Write), and Image Generation...")
         
         application = Application.builder().token(self.config.telegram_token).build()
         
