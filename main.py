@@ -137,8 +137,7 @@ class TelegramBot:
             "`/stats` - View usage statistics and costs\n\n"
             "**Features:**\n"
             "• Upload PDFs to save to Notion\n"
-            "• Ask about books in your library to retrieve the list\n"
-            "• Web Search enabled for real-time answers"
+            "• Ask about books in your library to retrieve the list"
         )
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
     
@@ -158,9 +157,7 @@ class TelegramBot:
             "Just send a text message to chat.\n\n"
             "**Notion Integration:**\n"
             "Upload a PDF to save a book.\n"
-            "Ask about 'books' or 'notion' to retrieve your library list for analysis.\n\n"
-            "**Web Search:**\n"
-            "I can browse the internet to answer real-time questions."
+            "Ask about 'books' or 'notion' to retrieve your library list for analysis."
         )
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -204,7 +201,7 @@ class TelegramBot:
             "• **LLM Name:** GLM-4.7\n"
             "• **Provider:** ZhipuAI (BigModel)\n"
             "• **Image Gen:** Stability AI / Hugging Face\n\n"
-            "Optimized for high speed, web search, and complex reasoning."
+            "Optimized for high speed, complex reasoning."
         )
         await update.message.reply_text(model_info, parse_mode='Markdown')
 
