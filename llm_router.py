@@ -1,5 +1,5 @@
 """
-LLM Router for GLM 5 API (ZhipuAI)
+LLM Router for GLM 4.7 API (ZhipuAI)
 Handles API calls with automatic JWT authentication
 """
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class LLMRouter:
     """
-    GLM 5 API integration with cost tracking
+    GLM 4.7 API integration with cost tracking
     """
     
     def __init__(self, config):
@@ -30,9 +30,9 @@ class LLMRouter:
             'glm_failures': 0
         }
         
-        # Pricing (per 1M tokens - approximate)
+        # Pricing (per 1M tokens - approximate for GLM-4.7)
         self.pricing = {
-            'glm': {'input': 1.00, 'output': 1.00}  # Adjusted estimate for GLM-5
+            'glm': {'input': 0.50, 'output': 1.00}  # Adjusted estimate
         }
     
     async def get_response(
@@ -117,7 +117,7 @@ class LLMRouter:
         user_name: Optional[str] = None
     ) -> str:
         """
-        Call GLM 5 API (ZhipuAI)
+        Call GLM 4.7 API (ZhipuAI) with Web Search Tool enabled
         """
         url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         
@@ -147,14 +147,27 @@ Your responses should be clean, well-structured, and visually appealing."""
             "Content-Type": "application/json"
         }
         
+        # --- WEB SEARCH ENABLEMENT ---
+        tools = [
+            {
+                "type": "web_search",
+                "web_search": {
+                    "search_result": True
+                }
+            }
+        ]
+        # ------------------------------
+
         payload = {
-            "model": "glm-5",  # Updated to GLM-5
+            "model": "glm-4.7",  # Updated to GLM-4.7
             "messages": messages,
             "temperature": 0.7,
-            "max_tokens": 2000
+            "max_tokens": 2000,
+            "tools": tools, 
+            "tool_choice": "auto"
         }
         
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(url, headers=headers, json=payload)
             
             logger.info(f"GLM API Status: {response.status_code}")
@@ -166,8 +179,11 @@ Your responses should be clean, well-structured, and visually appealing."""
             
             data = response.json()
             
-            # Extract response
-            content = data['choices'][0]['message']['content']
+            # Extract content
+            # With 'search_result: True', the API usually returns the final text directly in 'content'
+            # rather than tool_calls that we need to execute manually.
+            message_data = data['choices'][0]['message']
+            content = message_data.get('content', "")
             
             # Track costs
             usage = data.get('usage', {})
