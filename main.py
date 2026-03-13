@@ -346,13 +346,11 @@ class TelegramBot:
         user_name = user.first_name if user.first_name else (user.username if user.username else None)
         
         # --- NEW: Notion Context Injection ---
-        # If user mentions books/notion, fetch data and inject it
         if "book" in message_text.lower() or "notion" in message_text.lower() or "library" in message_text.lower():
             books = self.notion.get_books()
             
             if books:
                 book_list = "\n".join([f"- {b['title']} by {b['author']}" for b in books])
-                # Inject the book list into the message sent to AI
                 message_text = (
                     f"Here is the list of books currently saved in the Notion Library:\n{book_list}\n\n"
                     f"User Question: {message_text}\n\n"
@@ -378,6 +376,13 @@ class TelegramBot:
             
             formatted_response = self._format_response(response)
             
+            # --- FIX: Check for empty response ---
+            if not formatted_response or formatted_response.strip() == "":
+                logger.warning("Received empty response from AI. Skipping send.")
+                await update.message.reply_text("I received an empty response. Please try again.")
+                return
+            # -----------------------------------------------
+
             self.conversations[user_id].append({"role": "assistant", "content": formatted_response})
             if len(self.conversations[user_id]) > 20:
                 self.conversations[user_id] = self.conversations[user_id][-20:]
