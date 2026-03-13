@@ -1,6 +1,6 @@
 """
 LLM Router for GLM-4.7 API (ZhipuAI)
-Handles API calls with automatic JWT authentication and Real-time Date Injection
+Handles API calls with automatic JWT authentication.
 """
 
 import logging
@@ -11,7 +11,6 @@ import hashlib
 import base64
 import httpx
 from typing import List, Dict, Optional
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,6 @@ class LLMRouter:
         }
         
         # Pricing (per 1M tokens - approximate for GLM-4.7)
-        # Reverted to standard pricing
         self.pricing = {
             'glm': {'input': 0.50, 'output': 1.00}
         }
@@ -118,13 +116,9 @@ class LLMRouter:
         user_name: Optional[str] = None
     ) -> str:
         """
-        Call GLM-4.7 API (ZhipuAI) with Web Search and Real-Time Date
+        Call GLM-4.7 API (ZhipuAI)
         """
         url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-        
-        # --- FIX: Get Real-Time Date ---
-        current_date = datetime.now().strftime("%A, %B %d, %Y")
-        # ------------------------------
 
         system_prompt = """You are Biscuit, a helpful AI assistant. Format your responses with proper structure and spacing:
 
@@ -139,11 +133,7 @@ class LLMRouter:
 
 Your responses should be clean, well-structured, and visually appealing."""
         
-        # --- FIX: Inject Real-Time Date ---
-        system_prompt += f"\n\nCurrent Date: {current_date}"
-        # -----------------------------------
-
-        # Inject Command List
+        # --- REMOVED WEB SEARCH CLAIMS ---
         system_prompt += """
         
 You are integrated with a Telegram bot. You have the following specific available commands. 
@@ -161,8 +151,14 @@ When asked about commands, always list ALL of these:
 Features:
 - Users can upload PDF files to save to Notion.
 - Users can ask about books in Notion to retrieve the list.
-- You have access to Web Search to answer real-time questions.
+
+IMPORTANT LIMITATIONS:
+- You do NOT have access to the internet or real-time data.
+- You cannot browse the web.
+- Do NOT pretend to know real-time prices or news.
+- Be honest about your limitations.
 """
+        # --------------------------------
         
         if user_name:
             system_prompt += f"\n\nYou are speaking with {user_name}. Address them by name when appropriate."
@@ -176,28 +172,16 @@ Features:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-        
-        # --- WEB SEARCH ENABLEMENT ---
-        tools = [
-            {
-                "type": "web_search",
-                "web_search": {
-                    "search_result": True
-                }
-            }
-        ]
-        # ------------------------------
 
+        # REMOVED TOOLS AND TOOL_CHOICE
         payload = {
-            "model": "glm-4.7",  # REVERTED TO GLM-4.7
+            "model": "glm-4.7",
             "messages": messages,
             "temperature": 0.7,
-            "max_tokens": 2000,
-            "tools": tools, 
-            "tool_choice": "auto"
+            "max_tokens": 2000
         }
         
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client: # Reduced timeout since no search needed
             response = await client.post(url, headers=headers, json=payload)
             
             logger.info(f"GLM API Status: {response.status_code}")
