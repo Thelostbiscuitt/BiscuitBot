@@ -1,5 +1,5 @@
 """
-LLM Router for GLM 4.7 API (ZhipuAI)
+LLM Router for glm-4-flash API (ZhipuAI)
 Handles API calls with automatic JWT authentication and Real-time Date Injection
 """
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class LLMRouter:
     """
-    GLM 4.7 API integration with cost tracking
+    glm-4-flash API integration with cost tracking
     """
     
     def __init__(self, config):
@@ -117,7 +117,7 @@ class LLMRouter:
         user_name: Optional[str] = None
     ) -> str:
         """
-        Call GLM 4.7 API (ZhipuAI) with Web Search and Real-Time Date
+        Call glm-4-flash API (ZhipuAI) with Web Search and Real-Time Date
         """
         url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         
@@ -189,7 +189,7 @@ Features:
         # ------------------------------
 
         payload = {
-            "model": "glm-4.7",
+            "model": ""glm-4-flash"",
             "messages": messages,
             "temperature": 0.7,
             "max_tokens": 2000,
@@ -252,3 +252,4 @@ Features:
             'total_cost': 0.0,
             'glm_failures': 0
         }
+
