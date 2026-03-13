@@ -1,5 +1,5 @@
 """
-LLM Router for glm-4-flash API (ZhipuAI)
+LLM Router for GLM-4-Flash API (ZhipuAI)
 Handles API calls with automatic JWT authentication and Real-time Date Injection
 """
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class LLMRouter:
     """
-    glm-4-flash API integration with cost tracking
+    GLM-4-Flash API integration with cost tracking
     """
     
     def __init__(self, config):
@@ -30,9 +30,10 @@ class LLMRouter:
             'glm_failures': 0
         }
         
-        # Pricing (per 1M tokens - approximate for GLM-4.7)
+        # Pricing (per 1M tokens - approximate for GLM-4-Flash)
+        # Flash is generally cheaper than standard GLM-4
         self.pricing = {
-            'glm': {'input': 0.50, 'output': 1.00}  
+            'glm': {'input': 0.15, 'output': 0.15}
         }
     
     async def get_response(
@@ -117,12 +118,11 @@ class LLMRouter:
         user_name: Optional[str] = None
     ) -> str:
         """
-        Call glm-4-flash API (ZhipuAI) with Web Search and Real-Time Date
+        Call GLM-4-Flash API (ZhipuAI) with Web Search and Real-Time Date
         """
         url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         
         # --- FIX: Get Real-Time Date ---
-        # We use the server's datetime to prevent hallucinations about the date
         current_date = datetime.now().strftime("%A, %B %d, %Y")
         # ------------------------------
 
@@ -143,7 +143,7 @@ Your responses should be clean, well-structured, and visually appealing."""
         system_prompt += f"\n\nCurrent Date: {current_date}"
         # -----------------------------------
 
-        # Inject Command List to prevent hallucination
+        # Inject Command List
         system_prompt += """
         
 You are integrated with a Telegram bot. You have the following specific available commands. 
@@ -189,7 +189,7 @@ Features:
         # ------------------------------
 
         payload = {
-            "model": ""glm-4-flash"",
+            "model": "glm-4-flash",  # UPDATED TO FLASH
             "messages": messages,
             "temperature": 0.7,
             "max_tokens": 2000,
@@ -252,4 +252,3 @@ Features:
             'total_cost': 0.0,
             'glm_failures': 0
         }
-
