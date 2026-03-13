@@ -32,7 +32,7 @@ class LLMRouter:
         
         # Pricing (per 1M tokens - approximate for GLM-4.7)
         self.pricing = {
-            'glm': {'input': 0.50, 'output': 1.00}  # Adjusted estimate
+            'glm': {'input': 0.50, 'output': 1.00}  
         }
     
     async def get_response(
@@ -134,6 +134,28 @@ class LLMRouter:
 
 Your responses should be clean, well-structured, and visually appealing."""
         
+        # --- FIX: INJECT COMMAND LIST TO PREVENT HALLUCINATION ---
+        system_prompt += """
+        
+You are integrated with a Telegram bot. You have the following specific available commands. 
+When asked about commands, always list ALL of these:
+
+/start - Initialize the bot and view the main menu
+/help - Display the help guide
+/image <prompt> - Generate an image based on a text prompt
+/models - View the active AI model configuration
+/history - View recent conversation history
+/clear - Clear the current conversation memory
+/cancel - Cancel any ongoing operation (e.g., book upload)
+/stats - View usage statistics and costs
+
+Features:
+- Users can upload PDF files to save to Notion.
+- Users can ask about books in Notion to retrieve the list.
+- You have access to Web Search to answer real-time questions.
+"""
+        # ------------------------------------------------------------
+        
         if user_name:
             system_prompt += f"\n\nYou are speaking with {user_name}. Address them by name when appropriate."
         
@@ -159,7 +181,7 @@ Your responses should be clean, well-structured, and visually appealing."""
         # ------------------------------
 
         payload = {
-            "model": "glm-4.7",  # Updated to GLM-4.7
+            "model": "glm-4.7",
             "messages": messages,
             "temperature": 0.7,
             "max_tokens": 2000,
@@ -178,10 +200,6 @@ Your responses should be clean, well-structured, and visually appealing."""
                 raise Exception(f"GLM API returned status {response.status_code}: {error_text}")
             
             data = response.json()
-            
-            # Extract content
-            # With 'search_result: True', the API usually returns the final text directly in 'content'
-            # rather than tool_calls that we need to execute manually.
             message_data = data['choices'][0]['message']
             content = message_data.get('content', "")
             
