@@ -1,6 +1,6 @@
 """
 LLM Router for GLM 4.7 API (ZhipuAI)
-Handles API calls with automatic JWT authentication
+Handles API calls with automatic JWT authentication and Real-time Date Injection
 """
 
 import logging
@@ -117,10 +117,15 @@ class LLMRouter:
         user_name: Optional[str] = None
     ) -> str:
         """
-        Call GLM 4.7 API (ZhipuAI) with Web Search Tool enabled
+        Call GLM 4.7 API (ZhipuAI) with Web Search and Real-Time Date
         """
         url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         
+        # --- FIX: Get Real-Time Date ---
+        # We use the server's datetime to prevent hallucinations about the date
+        current_date = datetime.now().strftime("%A, %B %d, %Y")
+        # ------------------------------
+
         system_prompt = """You are Biscuit, a helpful AI assistant. Format your responses with proper structure and spacing:
 
 1. Use paragraph breaks (double newlines) between different topics or sections
@@ -134,7 +139,11 @@ class LLMRouter:
 
 Your responses should be clean, well-structured, and visually appealing."""
         
-        # --- FIX: INJECT COMMAND LIST TO PREVENT HALLUCINATION ---
+        # --- FIX: Inject Real-Time Date ---
+        system_prompt += f"\n\nCurrent Date: {current_date}"
+        # -----------------------------------
+
+        # Inject Command List to prevent hallucination
         system_prompt += """
         
 You are integrated with a Telegram bot. You have the following specific available commands. 
@@ -154,7 +163,6 @@ Features:
 - Users can ask about books in Notion to retrieve the list.
 - You have access to Web Search to answer real-time questions.
 """
-        # ------------------------------------------------------------
         
         if user_name:
             system_prompt += f"\n\nYou are speaking with {user_name}. Address them by name when appropriate."
